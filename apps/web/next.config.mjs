@@ -15,6 +15,19 @@ const nextConfig = {
   // We often open dev from LAN IP (phone testing). Next 15 warns that in future
   // we must explicitly allow dev origins for cross-origin /_next requests.
   allowedDevOrigins: ["http://localhost:3000", "http://127.0.0.1:3000"],
+
+  async rewrites() {
+    // Local dev convenience: keep frontend calling `/api/...` (same-origin),
+    // but proxy to the FastAPI server on :8000.
+    // In production, Nginx should do the same proxying.
+    const target = process.env.NEXT_API_PROXY_TARGET ?? "http://127.0.0.1:8000";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${target}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

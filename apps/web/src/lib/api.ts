@@ -1,14 +1,13 @@
-function defaultApiBaseUrl(): string {
-  // If the user opens the web app from a phone via LAN IP (e.g. http://10.x.x.x:3000),
-  // using "localhost" would point to the phone itself and fail. Derive backend host
-  // from the current page hostname instead.
-  if (typeof window !== "undefined") {
-    return `http://${window.location.hostname}:8000`;
-  }
-  return "http://localhost:8000";
-}
-
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? defaultApiBaseUrl();
+/**
+ * Prefer same-origin API in production (behind Nginx):
+ * - Browser requests `/api/...` (no :8000)
+ * - Nginx proxies `/api` -> `127.0.0.1:8000/api`
+ *
+ * For local dev you can either:
+ * - rely on Next `rewrites()` (recommended; see next.config.mjs), or
+ * - set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`
+ */
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export type HealthResponse = { status: string };
 
