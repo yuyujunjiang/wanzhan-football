@@ -1,1 +1,17 @@
 .worktrees/
+.superpowers/
+.DS_Store
+node_modules/
+dist/
+.env
+.next/
+.next-dev/
+.next-build/
+.npm-cache/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage/
+apps/api/data/
