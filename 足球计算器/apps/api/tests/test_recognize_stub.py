@@ -1,10 +1,17 @@
-from fastapi.testclient import TestClient
+import importlib
+import os
 
-from app.main import app
+from fastapi.testclient import TestClient
 
 
 def test_recognize_ticket_stub_returns_draft() -> None:
-    client = TestClient(app)
+    os.environ["FC_SQLITE_PATH"] = ":memory:"
+    app_settings = importlib.import_module("app.settings")
+    importlib.reload(app_settings)
+    app_main = importlib.import_module("app.main")
+    importlib.reload(app_main)
+
+    client = TestClient(app_main.app)
 
     resp = client.post(
         "/api/tickets/recognize",
@@ -12,7 +19,10 @@ def test_recognize_ticket_stub_returns_draft() -> None:
     )
 
     assert resp.status_code == 200
-    assert resp.json() == {
+    body = resp.json()
+    assert "id" in body
+    assert body["id"]
+    assert {k: v for k, v in body.items() if k != "id"} == {
         "ticketType": "jc-football",
         "playType": "SPF",
         "multiplier": 2,
