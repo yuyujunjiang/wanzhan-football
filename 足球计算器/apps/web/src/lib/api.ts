@@ -1,5 +1,14 @@
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+function defaultApiBaseUrl(): string {
+  // If the user opens the web app from a phone via LAN IP (e.g. http://10.x.x.x:3000),
+  // using "localhost" would point to the phone itself and fail. Derive backend host
+  // from the current page hostname instead.
+  if (typeof window !== "undefined") {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return "http://localhost:8000";
+}
+
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? defaultApiBaseUrl();
 
 export type HealthResponse = { status: string };
 
