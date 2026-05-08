@@ -30,6 +30,23 @@ class Ticket(BaseModel):
     legs: Annotated[list[Leg], Field(min_length=1)]
 
 
+class LegDraft(BaseModel):
+    matchKey: str | None = None
+    selection: str | None = None
+    handicap: float | None = None
+    sp: float | None = None
+
+
+class TicketDraft(BaseModel):
+    ticketType: Literal["jc-football"] = "jc-football"
+    playType: PlayType | None = None
+    multiplier: int | None = None
+    passTypes: list[str] = []
+    legs: list[LegDraft] = []
+    warnings: list[str] = []
+    sourceImages: list[str] = []
+
+
 class PayoutStatus(str, Enum):
     WON = "won"
     LOST = "lost"
