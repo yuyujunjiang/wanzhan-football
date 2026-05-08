@@ -10,6 +10,10 @@ def get_results_provider() -> ResultsProvider:
     provider = (settings.results_provider or "mock").lower()
     if provider == "mock":
         return MockResultsProvider()
+    if provider == "sporttery":
+        from .sporttery import SportteryResultsProvider
+
+        return SportteryResultsProvider()
     if provider == "football_data_org":
         if not settings.football_data_org_token:
             # Graceful fallback for local dev: keep app usable without secrets.

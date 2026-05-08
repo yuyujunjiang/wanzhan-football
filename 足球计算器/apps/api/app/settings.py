@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     sqlite_path: Path = Path("data/app.sqlite3")
     ocr_provider: str = "stub"  # stub | paddle
-    results_provider: str = "mock"  # mock | football_data_org
+    results_provider: str = "mock"  # mock | sporttery | football_data_org
     football_data_org_token: str | None = None
 
 
