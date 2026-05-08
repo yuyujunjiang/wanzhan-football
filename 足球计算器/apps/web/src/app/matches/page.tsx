@@ -11,6 +11,8 @@ type MatchItem = {
   awayTeam: string;
   kickoffTime: string;
   matchKey: string;
+  matchStatus?: string;
+  finalScore?: string | null;
   outcomeSPF?: string;
   outcomeRQSPF?: string;
 };
@@ -32,57 +34,89 @@ function cardStyle() {
 }
 
 export default function MatchesPage() {
-  const date = useMemo(() => formatLocalDateYYYYMMDD(new Date()), []);
+  const [date, setDate] = useState(() => formatLocalDateYYYYMMDD(new Date()));
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<MatchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  async function load(d: string) {
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/matches?date=${encodeURIComponent(date)}`);
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`API ${res.status} /api/matches${text ? `: ${text}` : ""}`);
-        }
-        const body = (await res.json()) as unknown;
-        if (!Array.isArray(body)) throw new Error("matches response is not a list");
-        if (cancelled) return;
-        setItems(body as MatchItem[]);
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/matches?date=${encodeURIComponent(d)}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`API ${res.status} /api/matches${text ? `: ${text}` : ""}`);
       }
-    })();
+      const body = (await res.json()) as unknown;
+      if (!Array.isArray(body)) throw new Error("matches response is not a list");
+      if (cancelled) return;
+      setItems(body as MatchItem[]);
+    } catch (e) {
+      if (cancelled) return;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }
+
+  useEffect(() => {
+    void load(date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <PageShell title="赛程/赛果" back>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <div style={{ color: "#666", fontSize: 13 }}>日期：{date}</div>
-        <a
-          href="/upload"
-          style={{
-            border: "1px solid #ddd",
-            background: "#fff",
-            padding: "8px 10px",
-            borderRadius: 10,
-            fontSize: 14,
-            textDecoration: "none",
-            color: "#111",
-          }}
-        >
-          去上传
-        </a>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ color: "#666", fontSize: 13 }}>日期</div>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.currentTarget.value)}
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 10,
+              padding: "8px 10px",
+              fontSize: 14,
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => void load(date)}
+            style={{
+              border: "1px solid #ddd",
+              background: "#fff",
+              padding: "8px 10px",
+              borderRadius: 10,
+              fontSize: 14,
+            }}
+          >
+            刷新
+          </button>
+          <a
+            href="/upload"
+            style={{
+              border: "1px solid #ddd",
+              background: "#fff",
+              padding: "8px 10px",
+              borderRadius: 10,
+              fontSize: 14,
+              textDecoration: "none",
+              color: "#111",
+              whiteSpace: "nowrap",
+            }}
+          >
+            去上传
+          </a>
+        </div>
       </div>
 
       {loading ? <div style={{ marginTop: 12, color: "#666", fontSize: 14 }}>加载中...</div> : null}
@@ -109,8 +143,28 @@ export default function MatchesPage() {
           <div key={m.matchKey} style={cardStyle()}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
               <div style={{ fontWeight: 650 }}>{m.league}</div>
-              <div style={{ color: "#666", fontSize: 13 }}>
-                {new Date(m.kickoffTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {m.finalScore ? (
+                  <div style={{ fontSize: 13, fontWeight: 750 }}>{m.finalScore}</div>
+                ) : (
+                  <div style={{ fontSize: 13, color: "#666" }}>
+                    {new Date(m.kickoffTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                )}
+                {m.matchStatus ? (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #eee",
+                      color: "#555",
+                      background: "#fafafa",
+                    }}
+                  >
+                    {m.matchStatus}
+                  </div>
+                ) : null}
               </div>
             </div>
 

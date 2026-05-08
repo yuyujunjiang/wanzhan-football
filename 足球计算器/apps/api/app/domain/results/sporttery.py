@@ -84,6 +84,51 @@ class SportteryResultsProvider(ResultsProvider):
         data = resp.json()
         out: list[dict[str, Any]] = []
 
+        # Best-effort: also fetch results for the same date so the matches page can show赛果.
+        results_by_match_id: dict[int, dict[str, Any]] = {}
+        try:
+            rurl = "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry"
+            rresp = self._client.get(
+                rurl,
+                params={
+                    "matchBeginDate": date,
+                    "matchEndDate": date,
+                    "leagueId": "",
+                    "pageSize": "200",
+                    "pageNo": "1",
+                    "isFix": "0",
+                    "matchPage": "1",
+                    "pcOrWap": "1",
+                },
+                headers={"Referer": "https://www.sporttery.cn/jc/zqsgkj/"},
+            )
+            rresp.raise_for_status()
+            rdata = rresp.json()
+            for m in rdata.get("value", {}).get("matchResult") or []:
+                mid = m.get("matchId")
+                if isinstance(mid, int):
+                    spf = _outcome_spf_from_win_flag(m.get("winFlag"))
+                    score = _parse_score(m.get("sectionsNo999"))
+                    handicap = _parse_handicap(m.get("goalLine"))
+                    rqspf = None
+                    if score:
+                        rqspf = _outcome_rqspf_from_score(score[0], score[1], handicap)
+                    payload: dict[str, Any] = {
+                        "finalScore": m.get("sectionsNo999") or None,
+                        "halfScore": m.get("sectionsNo1") or None,
+                        "goalLine": m.get("goalLine") or None,
+                        "matchResultStatus": m.get("matchResultStatus"),
+                        "poolStatus": m.get("poolStatus"),
+                    }
+                    if spf:
+                        payload["outcomeSPF"] = spf
+                    if rqspf:
+                        payload["outcomeRQSPF"] = rqspf
+                    results_by_match_id[mid] = payload
+        except Exception:
+            # No hard failure: keep list_matches usable even if results endpoint is flaky/blocked.
+            results_by_match_id = {}
+
         for day in (data.get("value", {}).get("matchInfoList") or []):
             if day.get("businessDate") != date:
                 continue
@@ -92,6 +137,8 @@ class SportteryResultsProvider(ResultsProvider):
                 home = m.get("homeTeamAbbName") or m.get("homeTeamAllName") or ""
                 away = m.get("awayTeamAbbName") or m.get("awayTeamAllName") or ""
                 match_key = f"{date} {league} {home} vs {away}".strip()
+                mid = m.get("matchId")
+                result_payload = results_by_match_id.get(mid) if isinstance(mid, int) else None
                 out.append(
                     {
                         "date": date,
@@ -100,10 +147,11 @@ class SportteryResultsProvider(ResultsProvider):
                         "awayTeam": away,
                         "kickoffTime": m.get("matchTime"),
                         "matchKey": match_key,
-                        "matchId": m.get("matchId"),
+                        "matchId": mid,
                         "matchStatus": m.get("matchStatus"),
                         "had": m.get("had"),
                         "hhad": m.get("hhad"),
+                        **(result_payload or {}),
                     }
                 )
         return out
