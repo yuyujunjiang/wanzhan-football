@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 
 from app.domain.ocr.ocr_service import StubOcrService
 from app.domain.parser.ticket_parser import parse_ticket
+from app.domain.results.mock_provider import MockResultsProvider
 from app.domain.tickets.models import PayoutReport, Ticket, TicketDraft
 from app.domain.tickets.payout import compute_payout
 from app.domain.tickets.validate import TicketValidationError, validate_ticket
@@ -13,6 +14,7 @@ from app.storage.anonymous_store import AnonymousTicketStore
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 store = AnonymousTicketStore()
+results_provider = MockResultsProvider()
 
 
 def _anon_token(
@@ -61,11 +63,9 @@ def calculate(
     except TicketValidationError as e:
         return {"ok": False, "errors": [str(e)]}
 
-    # Deterministic stub until Task 7: "everything matches user's selection".
-    results_by_match_key = {
-        leg.matchKey: {"outcomeSPF": leg.selection, "outcomeRQSPF": leg.selection}
-        for leg in ticket.legs
-    }
+    results_by_match_key = results_provider.get_results_by_match_keys(
+        [leg.matchKey for leg in ticket.legs]
+    )
     report: PayoutReport = compute_payout(ticket, results_by_match_key)
     ticket_id = store.create(
         ticket=ticket.model_dump(),

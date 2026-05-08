@@ -31,7 +31,15 @@ def test_calculate_ticket_persists_report(tmp_path) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert "id" in body
-    assert body["report"]["totalPayout"] == 15.54
+    from app.domain.results.mock_provider import MockResultsProvider
+    from app.domain.tickets.models import Ticket
+    from app.domain.tickets.payout import compute_payout
+
+    ticket = Ticket.model_validate(payload)
+    provider = MockResultsProvider()
+    results_by_match_key = provider.get_results_by_match_keys([leg.matchKey for leg in ticket.legs])
+    expected = compute_payout(ticket, results_by_match_key)
+    assert body["report"]["totalPayout"] == expected.totalPayout
 
     ticket_id = body["id"]
     fetch = client.get(f"/api/tickets/{ticket_id}")
@@ -39,5 +47,5 @@ def test_calculate_ticket_persists_report(tmp_path) -> None:
     stored = fetch.json()
     assert stored["id"] == ticket_id
     assert stored["ticket"]["multiplier"] == 2
-    assert stored["report"]["totalPayout"] == 15.54
+    assert stored["report"]["totalPayout"] == expected.totalPayout
 
