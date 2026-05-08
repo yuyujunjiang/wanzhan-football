@@ -25,6 +25,15 @@ cd /home/ubuntu/wanzhan-football
 sudo USE_LOCAL_REPO=1 SERVICE_USER=ubuntu SERVICE_GROUP=ubuntu bash scripts/deploy-ubuntu.sh
 ```
 
+### 说明：赛程/票据接口需要后端 API
+脚本默认会同时部署 `apps/api`（FastAPI），并由 Nginx 反代到 `/api/*`（后端监听 `127.0.0.1:8000`）。
+
+如果你的服务器暂时无法安装 Python 3.11，可先只部署前端：
+
+```bash
+sudo ENABLE_API=0 bash scripts/deploy-ubuntu.sh
+```
+
 ### 一键部署 + HTTPS（Let's Encrypt）
 确保 DNS A 记录已指向该主机且放行 80/443，然后：
 

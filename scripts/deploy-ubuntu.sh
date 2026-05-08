@@ -17,6 +17,12 @@ SERVICE_USER="${SERVICE_USER:-www-data}"
 SERVICE_GROUP="${SERVICE_GROUP:-www-data}"
 GIT_USER="${GIT_USER:-$SERVICE_USER}"
 
+# API (FastAPI)
+ENABLE_API="${ENABLE_API:-1}"
+API_PORT="${API_PORT:-8000}"
+API_SERVICE_NAME="${API_SERVICE_NAME:-football-calculator-api}"
+API_VENV_DIR="${API_VENV_DIR:-$APP_ROOT/venv-api}"
+
 # If set to 1, deploy using the repo that contains this script.
 # This avoids cloning into /srv when you already have a checkout (e.g. /home/ubuntu/wanzhan-football).
 USE_LOCAL_REPO="${USE_LOCAL_REPO:-0}"
@@ -63,7 +69,7 @@ detect_web_dir_rel() {
   fi
 
   # shellcheck disable=SC2010
-  cand="$(sudo -u www-data bash -lc "cd \"$REPO_DIR\" && ls -d */apps/web 2>/dev/null | head -n 1" || true)"
+  cand="$(sudo -u "$SERVICE_USER" bash -lc "cd \"$REPO_DIR\" && ls -d */apps/web 2>/dev/null | head -n 1" || true)"
   if [[ -n "$cand" && -f "$REPO_DIR/$cand/package.json" ]]; then
     echo "$cand"
     return
@@ -75,7 +81,7 @@ detect_web_dir_rel() {
 ensure_packages() {
   log "Installing base packages (nginx, git, curl)"
   apt-get update -y
-  apt-get install -y nginx git curl ca-certificates perl
+  apt-get install -y nginx git curl ca-certificates perl python3 python3-venv python3-pip
 }
 
 ensure_node() {
@@ -173,6 +179,83 @@ build_web() {
   sudo -u "$SERVICE_USER" bash -lc "cd \"$web_dir\" && npm run build"
 }
 
+ensure_python_for_api() {
+  if [[ "$ENABLE_API" != "1" ]]; then
+    return
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not found but ENABLE_API=1"
+    exit 1
+  fi
+
+  local pyver
+  pyver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  local major minor
+  major="${pyver%%.*}"
+  minor="${pyver##*.}"
+  if [[ "$major" -lt 3 || ( "$major" -eq 3 && "$minor" -lt 11 ) ]]; then
+    echo "API requires Python >= 3.11 (found $pyver)."
+    echo "Options:"
+    echo "  - Install Python 3.11 on the server, then rerun."
+    echo "  - Or run deploy with ENABLE_API=0 (frontend only)."
+    exit 1
+  fi
+}
+
+build_api() {
+  if [[ "$ENABLE_API" != "1" ]]; then
+    log "Skipping API deploy (ENABLE_API=0)"
+    return
+  fi
+
+  ensure_python_for_api
+
+  local api_dir="$REPO_DIR/apps/api"
+  if [[ ! -f "$api_dir/pyproject.toml" ]]; then
+    echo "Expected $api_dir/pyproject.toml but not found."
+    exit 1
+  fi
+
+  log "Installing deps and preparing API venv ($API_VENV_DIR)"
+  install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$API_VENV_DIR"
+  sudo -u "$SERVICE_USER" bash -lc "python3 -m venv \"$API_VENV_DIR\""
+  sudo -u "$SERVICE_USER" bash -lc "\"$API_VENV_DIR/bin/python\" -m pip install -U pip setuptools wheel"
+  sudo -u "$SERVICE_USER" bash -lc "\"$API_VENV_DIR/bin/pip\" install -e \"$api_dir\""
+}
+
+write_api_systemd_service() {
+  if [[ "$ENABLE_API" != "1" ]]; then
+    return
+  fi
+
+  log "Configuring systemd service: $API_SERVICE_NAME"
+  local unit="/etc/systemd/system/$API_SERVICE_NAME.service"
+
+  cat > "$unit" <<EOF
+[Unit]
+Description=Football Calculator API (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$REPO_DIR/apps/api
+Environment=PYTHONUNBUFFERED=1
+ExecStart=$API_VENV_DIR/bin/uvicorn app.main:app --host 127.0.0.1 --port $API_PORT
+Restart=always
+RestartSec=3
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now "$API_SERVICE_NAME"
+  systemctl restart "$API_SERVICE_NAME"
+}
+
 write_systemd_service() {
   # Ensure we use the resolved WEB_DIR_REL.
   if [[ -f "$APP_ROOT/.web_dir_rel" ]]; then
@@ -216,6 +299,16 @@ server {
   listen 80;
   server_name __DOMAIN__ www.__DOMAIN__;
 
+  location /api/ {
+    proxy_pass http://127.0.0.1:__API_PORT__/;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
   location / {
     proxy_pass http://127.0.0.1:__PORT__;
     proxy_http_version 1.1;
@@ -232,7 +325,7 @@ server {
 EOF
 
   # Fill in placeholders without relying on sed -i differences.
-  perl -0777 -i -pe "s/__DOMAIN__/$DOMAIN/g; s/__PORT__/$PORT/g" "$site_available"
+  perl -0777 -i -pe "s/__DOMAIN__/$DOMAIN/g; s/__PORT__/$PORT/g; s/__API_PORT__/$API_PORT/g" "$site_available"
 
   ln -sf "$site_available" "/etc/nginx/sites-enabled/$NGINX_SITE_NAME"
 
@@ -270,7 +363,9 @@ main() {
   ensure_user_and_dirs
   clone_or_update_repo
   build_web
+  build_api
   write_systemd_service
+  write_api_systemd_service
   write_nginx_site
   maybe_enable_https
   mark_last_good
