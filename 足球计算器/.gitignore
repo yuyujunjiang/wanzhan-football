@@ -3,3 +3,11 @@
 node_modules/
 dist/
 .env
+.next/
+.npm-cache/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage/
