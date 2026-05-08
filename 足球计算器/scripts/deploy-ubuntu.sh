@@ -26,6 +26,43 @@ log() {
   printf "\n==> %s\n" "$1"
 }
 
+detect_web_dir_rel() {
+  # Returns a WEB_DIR_REL value relative to $REPO_DIR.
+  # Priority:
+  # 1) $WEB_DIR_REL (if valid)
+  # 2) apps/web
+  # 3) 足球计算器/apps/web
+  # 4) first match of */apps/web
+  local cand
+
+  cand="$WEB_DIR_REL"
+  if [[ -f "$REPO_DIR/$cand/package.json" ]]; then
+    echo "$cand"
+    return
+  fi
+
+  cand="apps/web"
+  if [[ -f "$REPO_DIR/$cand/package.json" ]]; then
+    echo "$cand"
+    return
+  fi
+
+  cand="足球计算器/apps/web"
+  if [[ -f "$REPO_DIR/$cand/package.json" ]]; then
+    echo "$cand"
+    return
+  fi
+
+  # shellcheck disable=SC2010
+  cand="$(sudo -u www-data bash -lc "cd \"$REPO_DIR\" && ls -d */apps/web 2>/dev/null | head -n 1" || true)"
+  if [[ -n "$cand" && -f "$REPO_DIR/$cand/package.json" ]]; then
+    echo "$cand"
+    return
+  fi
+
+  return 1
+}
+
 ensure_packages() {
   log "Installing base packages (nginx, git, curl)"
   apt-get update -y
@@ -89,7 +126,15 @@ clone_or_update_repo() {
 }
 
 build_web() {
+  WEB_DIR_REL="$(detect_web_dir_rel)" || {
+    echo "Could not locate Next.js app directory (expected apps/web/package.json or 足球计算器/apps/web/package.json)."
+    echo "Repo directory: $REPO_DIR"
+    exit 1
+  }
+
+  echo "$WEB_DIR_REL" > "$APP_ROOT/.web_dir_rel"
   log "Installing deps and building Next.js app ($WEB_DIR_REL)"
+
   local web_dir="$REPO_DIR/$WEB_DIR_REL"
   if [[ ! -f "$web_dir/package.json" ]]; then
     echo "Expected $web_dir/package.json but not found."
@@ -101,6 +146,11 @@ build_web() {
 }
 
 write_systemd_service() {
+  # Ensure we use the resolved WEB_DIR_REL.
+  if [[ -f "$APP_ROOT/.web_dir_rel" ]]; then
+    WEB_DIR_REL="$(cat "$APP_ROOT/.web_dir_rel" | tr -d '\n')"
+  fi
+
   log "Configuring systemd service: $SERVICE_NAME"
   local unit="/etc/systemd/system/$SERVICE_NAME.service"
 

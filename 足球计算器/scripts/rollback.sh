@@ -22,6 +22,11 @@ main() {
 
   local prev_file="$APP_ROOT/.prev_commit"
   local last_good_file="$APP_ROOT/.last_good_commit"
+  local web_dir_rel_file="$APP_ROOT/.web_dir_rel"
+
+  if [[ -f "$web_dir_rel_file" ]]; then
+    WEB_DIR_REL="$(cat "$web_dir_rel_file" | tr -d '\n')"
+  fi
 
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     echo "Repo not found at $REPO_DIR"
