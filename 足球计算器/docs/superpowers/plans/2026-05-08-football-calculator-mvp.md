@@ -14,6 +14,14 @@
 
 The spec includes two subsystems: (1) ticket recognition + payout calculation (core) and (2) football info pages (schedule/results + odds/trends). This plan implements the **core end-to-end flow** and a **minimal schedule/results page** only. A follow-up plan should cover “odds trends + analysis cards” once a data source is chosen.
 
+## UI constraints (mobile-first)
+
+The web UI is **mobile-first** and should feel close to `m.sporttery.cn` interaction style:
+- Single-column, card-based layout; avoid horizontal scrolling.
+- Primary actions (Recognize / Validate / Calculate) stay reachable (bottom fixed action bar or sticky button).
+- Editing is tap-friendly: each leg is a card with inline editable fields and an expand/collapse for advanced fields.
+- Long lists are chunked (pagination or “load more”).
+
 ## Target file structure (lock boundaries)
 
 ### Repo layout (inside `足球计算器/`)
@@ -825,13 +833,26 @@ export async function recognizeTicket(files: File[]) {
 - [ ] **Step 3: Upload page calls recognize and routes to edit page**
 - On success: store `anonToken` in `localStorage` if not present, keep `ticketId`
 
+- [ ] **Step 3.1: Add mobile-friendly page shell**
+- Use a consistent header + content + bottom action area pattern on Upload/Edit/Report pages.
+  - Header: page title and back button
+  - Bottom: primary button (full width)
+
 - [ ] **Step 4: TicketEditor renders legs as editable rows**
 - Editable fields: `matchKey`, `selection`, `sp`, `handicap` (only when RQSPF)
 - “Add leg” / “Remove leg”
 
+- [ ] **Step 4.1: Change legs UI to “cards” (mobile-first)**
+- Each leg card shows: matchKey (1 line), selection + sp on the same row, and an “Edit” affordance.
+- Provide expand/collapse for optional fields (handicap) and deletion.
+
 - [ ] **Step 5: Add “Validate” + “Calculate” buttons**
 - Validate calls `/api/tickets/validate`
 - Calculate calls `/api/tickets/calculate` then routes to report page
+
+- [ ] **Step 5.1: Add bottom fixed action bar on edit page**
+- Primary: “计算奖金”
+- Secondary: “校验/检查”
 
 - [ ] **Step 6: Manual smoke test**
 - Run API + Web
