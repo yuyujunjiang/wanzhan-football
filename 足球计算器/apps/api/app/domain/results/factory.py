@@ -6,20 +6,30 @@ from .mock_provider import MockResultsProvider
 from .provider import ResultsProvider
 
 
+_singleton: ResultsProvider | None = None
+
+
 def get_results_provider() -> ResultsProvider:
+    global _singleton
+    if _singleton is not None:
+        return _singleton
     provider = (settings.results_provider or "mock").lower()
     if provider == "mock":
-        return MockResultsProvider()
+        _singleton = MockResultsProvider()
+        return _singleton
     if provider == "sporttery":
-        from .sporttery import SportteryResultsProvider
+        from .cached_sporttery import CachedSportteryResultsProvider
 
-        return SportteryResultsProvider()
+        _singleton = CachedSportteryResultsProvider()
+        return _singleton
     if provider == "football_data_org":
         if not settings.football_data_org_token:
             # Graceful fallback for local dev: keep app usable without secrets.
-            return MockResultsProvider()
+            _singleton = MockResultsProvider()
+            return _singleton
         from .football_data_org import FootballDataOrgProvider
 
-        return FootballDataOrgProvider(token=settings.football_data_org_token)
+        _singleton = FootballDataOrgProvider(token=settings.football_data_org_token)
+        return _singleton
     raise ValueError(f"Unknown results provider: {settings.results_provider!r}")
 

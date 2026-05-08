@@ -77,6 +77,10 @@ export async function recognizeTicket(files: File[]): Promise<RecognizeTicketRes
   for (const file of files) form.append("images", file);
   return await apiFetch<RecognizeTicketResponse>("/api/tickets/recognize", {
     method: "POST",
+    headers: {
+      // Default to real OCR; backend supports switching providers by header.
+      "X-Ocr-Provider": "paddle",
+    },
     body: form,
   });
 }

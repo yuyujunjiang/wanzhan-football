@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { PageShell } from "../../../../components/PageShell";
 import { getTicket, type Ticket } from "../../../../lib/api";
+import { addTicket } from "../../../../lib/wanzhanLedger";
 
 type PayoutReport = {
   status: "won" | "lost" | "pending" | "partial";
@@ -80,22 +81,53 @@ export default function TicketReportPage() {
   const hitCount = useMemo(() => legHits.filter(Boolean).length, [legHits]);
 
   const bottom = (
-    <button
-      type="button"
-      onClick={() => router.push(`/tickets/${encodeURIComponent(id)}/edit`)}
-      style={{
-        width: "100%",
-        border: "1px solid #111",
-        background: "#111",
-        color: "#fff",
-        padding: "12px 14px",
-        borderRadius: 14,
-        fontSize: 16,
-        fontWeight: 650,
-      }}
-    >
-      返回校对
-    </button>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <button
+        type="button"
+        onClick={() => router.push(`/tickets/${encodeURIComponent(id)}/edit`)}
+        style={{
+          width: "100%",
+          border: "1px solid #111",
+          background: "#fff",
+          color: "#111",
+          padding: "12px 14px",
+          borderRadius: 14,
+          fontSize: 16,
+          fontWeight: 650,
+        }}
+      >
+        返回校对
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          // 前端占位：先落到本地记账本；后端接入后替换为 API 落账
+          const now = new Date();
+          const y = now.getFullYear();
+          const m = String(now.getMonth() + 1).padStart(2, "0");
+          const d = String(now.getDate()).padStart(2, "0");
+          const date = `${y}-${m}-${d}`;
+
+          const stake = 0;
+          const payout = Number(report?.totalPayout ?? 0);
+          const status = report?.status === "pending" ? "pending" : "settled";
+          addTicket({ id, date, stake, payout, status });
+          router.push(`/wanzhan/ledger/day/${encodeURIComponent(date)}`);
+        }}
+        style={{
+          width: "100%",
+          border: "1px solid #111",
+          background: "#111",
+          color: "#fff",
+          padding: "12px 14px",
+          borderRadius: 14,
+          fontSize: 16,
+          fontWeight: 650,
+        }}
+      >
+        记入账本
+      </button>
+    </div>
   );
 
   return (

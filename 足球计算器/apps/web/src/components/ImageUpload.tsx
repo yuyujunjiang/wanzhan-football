@@ -9,6 +9,18 @@ export function ImageUpload(props: {
 }) {
   const inputId = useId();
 
+  function mergeFiles(prev: File[], next: File[]) {
+    const out: File[] = [];
+    const seen = new Set<string>();
+    for (const f of [...prev, ...next]) {
+      const k = `${f.name}::${f.size}::${f.lastModified}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(f);
+    }
+    return out;
+  }
+
   return (
     <div
       style={{
@@ -43,7 +55,9 @@ export function ImageUpload(props: {
         style={{ display: "none" }}
         onChange={(e) => {
           const list = Array.from(e.currentTarget.files ?? []);
-          props.onFilesChange(list);
+          props.onFilesChange(mergeFiles(props.files, list));
+          // Allow choosing the same file again (some browsers won't fire change if same selection).
+          e.currentTarget.value = "";
         }}
       />
 

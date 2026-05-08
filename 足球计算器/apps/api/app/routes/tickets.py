@@ -29,10 +29,11 @@ def recognize_ticket(
     images: list[UploadFile] = File(...),
     anon_token_query: str | None = None,
     x_anon_token: str | None = Header(default=None, alias="X-Anon-Token"),
+    x_ocr_provider: str | None = Header(default=None, alias="X-Ocr-Provider"),
 ) -> dict[str, Any]:
     source_images = [img.filename or "unknown" for img in images]
     image_bytes = [img.file.read() for img in images]
-    ocr = get_ocr_service()
+    ocr = get_ocr_service(provider=x_ocr_provider)
     lines = ocr.recognize(images=image_bytes, source_images=source_images)
     draft = parse_ticket(lines, source_images)
     ticket_id = store.create(

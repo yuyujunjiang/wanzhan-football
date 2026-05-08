@@ -8,6 +8,7 @@ export function PageShell(props: {
   children: ReactNode;
   bottom?: ReactNode;
   back?: boolean;
+  right?: ReactNode;
 }) {
   const router = useRouter();
 
@@ -54,7 +55,10 @@ export function PageShell(props: {
               返回
             </button>
           ) : null}
-          <div style={{ fontWeight: 650, fontSize: 16 }}>{props.title}</div>
+          <div style={{ fontWeight: 650, fontSize: 16, flex: 1 }}>{props.title}</div>
+          {props.right ? (
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>{props.right}</div>
+          ) : null}
         </div>
       </header>
 

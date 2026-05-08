@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     results_provider: str = "mock"  # mock | sporttery | football_data_org
     football_data_org_token: str | None = None
 
+    # Matches cache (file-based). Intended to speed up /api/matches for schedule-heavy pages.
+    matches_cache_dir: Path = Path("data/matches")
+
 
 settings = Settings()
 

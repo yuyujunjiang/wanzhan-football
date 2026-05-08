@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { PageShell } from "../../components/PageShell";
-import { API_BASE_URL } from "../../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { WanzhanShell } from "../../../components/wanzhan/WanzhanShell";
+import { StatStrip } from "../../../components/wanzhan/StatStrip";
+import { API_BASE_URL } from "../../../lib/api";
+import { summarizeDay } from "../../../lib/wanzhanLedger";
 
 type MatchItem = {
   date: string;
@@ -13,7 +15,6 @@ type MatchItem = {
   matchKey: string;
   matchStatus?: string;
   finalScore?: string | null;
-  halfScore?: string | null;
   goalLine?: string | null;
   had?: { h?: string; d?: string; a?: string } | null;
   hhad?: { goalLine?: string; h?: string; d?: string; a?: string } | null;
@@ -78,36 +79,36 @@ function oddsGrid(label: string, odds: { h?: string; d?: string; a?: string } | 
   );
 }
 
-export default function MatchesPage() {
+export default function WanzhanMatchesPage() {
   const [start, setStart] = useState(() => formatLocalDateYYYYMMDD(new Date()));
+  const today = start;
 
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState<MatchDayGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const summary = useMemo(() => summarizeDay(today), [today]);
+
   async function load(d: string) {
-    let cancelled = false;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/matches/range?start=${encodeURIComponent(d)}&days=7`);
+      const res = await fetch(
+        `${API_BASE_URL}/api/matches/range?start=${encodeURIComponent(d)}&days=7`,
+      );
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(`API ${res.status} /api/matches/range${text ? `: ${text}` : ""}`);
       }
       const body = (await res.json()) as unknown;
       if (!Array.isArray(body)) throw new Error("matches response is not a list");
-      if (cancelled) return;
       setDays(body as MatchDayGroup[]);
     } catch (e) {
-      if (cancelled) return;
       setError(e instanceof Error ? e.message : String(e));
+      setDays([]);
     } finally {
-      if (!cancelled) setLoading(false);
+      setLoading(false);
     }
-    return () => {
-      cancelled = true;
-    };
   }
 
   useEffect(() => {
@@ -116,9 +117,8 @@ export default function MatchesPage() {
   }, []);
 
   return (
-    <PageShell
-      title="赛程/赛果"
-      back
+    <WanzhanShell
+      title="赛程赛果"
       right={
         <a
           href="/upload"
@@ -137,39 +137,50 @@ export default function MatchesPage() {
           添加彩票
         </a>
       }
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ color: "#666", fontSize: 13 }}>开始日期</div>
-          <input
-            type="date"
-            value={start}
-            onChange={(e) => setStart(e.currentTarget.value)}
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 10,
-              padding: "8px 10px",
-              fontSize: 14,
-            }}
+      top={
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ color: "#666", fontSize: 13 }}>开始日期</div>
+              <input
+                type="date"
+                value={start}
+                onChange={(e) => setStart(e.currentTarget.value)}
+                style={{
+                  border: "1px solid #ddd",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  fontSize: 14,
+                  background: "#fff",
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void load(start)}
+              style={{
+                border: "1px solid #ddd",
+                background: "#fff",
+                padding: "8px 10px",
+                borderRadius: 10,
+                fontSize: 14,
+              }}
+            >
+              刷新
+            </button>
+          </div>
+
+          <StatStrip
+            profitToday={summary.ticketCount ? summary.profit : 0}
+            pendingCount={summary.pendingCount}
+            onOpenTodayTickets={() => (window.location.href = `/wanzhan/ledger/day/${encodeURIComponent(today)}`)}
+            onOpenPendingTickets={() =>
+              (window.location.href = `/wanzhan/ledger/day/${encodeURIComponent(today)}?filter=pending`)
+            }
           />
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button
-            type="button"
-            onClick={() => void load(start)}
-            style={{
-              border: "1px solid #ddd",
-              background: "#fff",
-              padding: "8px 10px",
-              borderRadius: 10,
-              fontSize: 14,
-            }}
-          >
-            刷新
-          </button>
-        </div>
-      </div>
-
+      }
+    >
       {loading ? <div style={{ marginTop: 12, color: "#666", fontSize: 14 }}>加载中...</div> : null}
 
       {error ? (
@@ -189,7 +200,7 @@ export default function MatchesPage() {
         </div>
       ) : null}
 
-      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
         {days.map((day) => (
           <div key={day.date} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -203,51 +214,18 @@ export default function MatchesPage() {
               <div key={`${day.date}-${m.matchKey}`} style={cardStyle()}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <div style={{ fontWeight: 650 }}>{m.league}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {m.finalScore ? (
-                      <div style={{ fontSize: 13, fontWeight: 750 }}>{m.finalScore}</div>
-                    ) : (
-                      <div style={{ fontSize: 13, color: "#666" }}>
-                        {new Date(m.kickoffTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </div>
-                    )}
-                    {m.matchStatus ? (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          border: "1px solid #eee",
-                          color: "#555",
-                          background: "#fafafa",
-                        }}
-                      >
-                        {m.matchStatus}
-                      </div>
-                    ) : null}
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 750 }}>{m.finalScore ?? m.matchStatus ?? ""}</div>
                 </div>
-
-                <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700 }}>
+                <div style={{ marginTop: 8, fontSize: 16, fontWeight: 800 }}>
                   {m.homeTeam} <span style={{ color: "#999" }}>vs</span> {m.awayTeam}
                 </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                  {new Date(m.kickoffTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ·{" "}
+                  {m.matchKey}
+                </div>
 
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {m.halfScore ? (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        padding: "4px 10px",
-                        borderRadius: 999,
-                        border: "1px solid #eee",
-                        background: "#fafafa",
-                        color: "#444",
-                      }}
-                    >
-                      半场 {m.halfScore}
-                    </div>
-                  ) : null}
-                  {m.goalLine ? (
+                {m.goalLine ? (
+                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <div
                       style={{
                         fontSize: 12,
@@ -260,16 +238,12 @@ export default function MatchesPage() {
                     >
                       让球 {m.goalLine}
                     </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
 
                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                   {oddsGrid("胜平负 (HAD)", m.had)}
                   {oddsGrid(`让球胜平负 (HHAD) ${m.hhad?.goalLine ?? ""}`.trim(), m.hhad)}
-                </div>
-
-                <div style={{ marginTop: 8, fontSize: 12, color: "#666", wordBreak: "break-word" }}>
-                  matchKey：{m.matchKey}
                 </div>
               </div>
             ))}
@@ -290,7 +264,7 @@ export default function MatchesPage() {
           </div>
         ) : null}
       </div>
-    </PageShell>
+    </WanzhanShell>
   );
 }
 
