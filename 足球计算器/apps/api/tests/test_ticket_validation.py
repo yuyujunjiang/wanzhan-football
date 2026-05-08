@@ -1,5 +1,4 @@
 import pytest
-from pydantic import ValidationError
 
 from app.domain.tickets.models import Leg, PlayType, Ticket
 from app.domain.tickets.validate import TicketValidationError, validate_ticket
@@ -19,15 +18,39 @@ def _spf_ticket(**overrides) -> Ticket:
     return Ticket(**base)
 
 
+def _construct_ticket(*, playType=PlayType.SPF, passTypes=("2x1",), legs=None) -> Ticket:
+    """Build a Ticket bypassing pydantic validation so validate_ticket can be the gate."""
+
+    if legs is None:
+        legs = [
+            Leg.model_construct(matchKey="m1", selection="胜", sp=1.6, handicap=None),
+            Leg.model_construct(matchKey="m2", selection="平", sp=3.2, handicap=None),
+        ]
+    return Ticket.model_construct(
+        ticketType="jc-football",
+        playType=playType,
+        multiplier=1,
+        passTypes=list(passTypes),
+        legs=list(legs),
+    )
+
+
 @pytest.mark.parametrize("bad_sp", [0.0, 1.0, -1.0])
-def test_leg_model_rejects_bad_sp(bad_sp: float) -> None:
-    with pytest.raises(ValidationError):
-        Leg(matchKey="m1", selection="胜", sp=bad_sp)
+def test_validate_ticket_rejects_bad_sp(bad_sp: float) -> None:
+    ticket = _construct_ticket(
+        legs=[
+            Leg.model_construct(matchKey="m1", selection="胜", sp=bad_sp, handicap=None),
+            Leg.model_construct(matchKey="m2", selection="平", sp=3.2, handicap=None),
+        ]
+    )
+    with pytest.raises(TicketValidationError):
+        validate_ticket(ticket)
 
 
-def test_validate_ticket_requires_pass_types() -> None:
-    with pytest.raises(ValidationError):
-        _spf_ticket(passTypes=[])
+def test_validate_ticket_rejects_empty_pass_types() -> None:
+    ticket = _construct_ticket(passTypes=[])
+    with pytest.raises(TicketValidationError):
+        validate_ticket(ticket)
 
 
 def test_validate_ticket_requires_enough_legs_for_pass_types() -> None:
@@ -57,8 +80,7 @@ def test_validate_ticket_rqspf_requires_handicap_for_every_leg() -> None:
 
 
 def test_validate_ticket_passes_for_valid_spf_ticket() -> None:
-    ticket = _spf_ticket()
-    validate_ticket(ticket)
+    validate_ticket(_spf_ticket())
 
 
 def test_validate_ticket_passes_for_valid_rqspf_ticket() -> None:
