@@ -11,11 +11,11 @@ class OcrLine:
 
 
 class OcrService(Protocol):
-    def recognize(self, *, source_images: list[str]) -> list[OcrLine]: ...
+    def recognize(self, *, images: list[bytes], source_images: list[str]) -> list[OcrLine]: ...
 
 
 class StubOcrService:
-    def recognize(self, *, source_images: list[str]) -> list[OcrLine]:
+    def recognize(self, *, images: list[bytes], source_images: list[str]) -> list[OcrLine]:
         # Deterministic stub output for MVP wiring & tests.
         return [
             OcrLine("竞彩足球 SPF"),

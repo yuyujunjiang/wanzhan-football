@@ -4,9 +4,9 @@ from typing import Any
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 
-from app.domain.ocr.ocr_service import StubOcrService
+from app.domain.ocr.factory import get_ocr_service
 from app.domain.parser.ticket_parser import parse_ticket
-from app.domain.results.mock_provider import MockResultsProvider
+from app.domain.results.factory import get_results_provider
 from app.domain.tickets.models import PayoutReport, Ticket, TicketDraft
 from app.domain.tickets.payout import compute_payout
 from app.domain.tickets.validate import TicketValidationError, validate_ticket
@@ -14,7 +14,6 @@ from app.storage.anonymous_store import AnonymousTicketStore
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 store = AnonymousTicketStore()
-results_provider = MockResultsProvider()
 
 
 def _anon_token(
@@ -32,8 +31,9 @@ def recognize_ticket(
     x_anon_token: str | None = Header(default=None, alias="X-Anon-Token"),
 ) -> dict[str, Any]:
     source_images = [img.filename or "unknown" for img in images]
-    ocr = StubOcrService()
-    lines = ocr.recognize(source_images=source_images)
+    image_bytes = [img.file.read() for img in images]
+    ocr = get_ocr_service()
+    lines = ocr.recognize(images=image_bytes, source_images=source_images)
     draft = parse_ticket(lines, source_images)
     ticket_id = store.create(
         ticket=draft.model_dump(),
@@ -63,6 +63,7 @@ def calculate(
     except TicketValidationError as e:
         return {"ok": False, "errors": [str(e)]}
 
+    results_provider = get_results_provider()
     results_by_match_key = results_provider.get_results_by_match_keys(
         [leg.matchKey for leg in ticket.legs]
     )
