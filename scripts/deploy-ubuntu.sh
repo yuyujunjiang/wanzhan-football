@@ -12,6 +12,15 @@ PORT="${PORT:-3000}"
 SERVICE_NAME="${SERVICE_NAME:-football-calculator}"
 NGINX_SITE_NAME="${NGINX_SITE_NAME:-football-calculator}"
 
+# Users
+SERVICE_USER="${SERVICE_USER:-www-data}"
+SERVICE_GROUP="${SERVICE_GROUP:-www-data}"
+GIT_USER="${GIT_USER:-$SERVICE_USER}"
+
+# If set to 1, deploy using the repo that contains this script.
+# This avoids cloning into /srv when you already have a checkout (e.g. /home/ubuntu/wanzhan-football).
+USE_LOCAL_REPO="${USE_LOCAL_REPO:-0}"
+
 # Set ENABLE_HTTPS=1 to attempt certbot issuance.
 ENABLE_HTTPS="${ENABLE_HTTPS:-0}"
 
@@ -91,29 +100,48 @@ ensure_user_and_dirs() {
   log "Preparing directories under $APP_ROOT"
   mkdir -p "$APP_ROOT"
   mkdir -p "$REPO_DIR"
-  chown -R www-data:www-data "$APP_ROOT"
+  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_ROOT"
+}
+
+resolve_repo_dir() {
+  if [[ "$USE_LOCAL_REPO" == "1" ]]; then
+    local script_dir repo_root
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    repo_root="$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -z "$repo_root" ]]; then
+      echo "USE_LOCAL_REPO=1 but could not find a git repo from: $script_dir"
+      exit 1
+    fi
+    REPO_DIR="$repo_root"
+    log "Using local repo: $REPO_DIR"
+  fi
 }
 
 clone_or_update_repo() {
+  if [[ "$USE_LOCAL_REPO" == "1" ]]; then
+    log "Skipping clone/pull (USE_LOCAL_REPO=1)"
+    return
+  fi
+
   log "Syncing repository ($REPO_URL @ $BRANCH)"
 
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     rm -rf "$REPO_DIR"
-    install -d -o www-data -g www-data "$REPO_DIR"
-    sudo -u www-data git clone "$REPO_URL" "$REPO_DIR"
+    install -d -o "$GIT_USER" -g "$SERVICE_GROUP" "$REPO_DIR"
+    sudo -u "$GIT_USER" git clone "$REPO_URL" "$REPO_DIR"
   fi
 
   local prev_commit_file="$APP_ROOT/.prev_commit"
   local last_good_file="$APP_ROOT/.last_good_commit"
   local current_commit=""
 
-  if sudo -u www-data git -C "$REPO_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
-    current_commit="$(sudo -u www-data git -C "$REPO_DIR" rev-parse HEAD)"
+  if sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
+    current_commit="$(sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse HEAD)"
   fi
 
-  sudo -u www-data git -C "$REPO_DIR" fetch --all --prune
-  sudo -u www-data git -C "$REPO_DIR" checkout "$BRANCH"
-  sudo -u www-data git -C "$REPO_DIR" pull --ff-only
+  sudo -u "$GIT_USER" git -C "$REPO_DIR" fetch --all --prune
+  sudo -u "$GIT_USER" git -C "$REPO_DIR" checkout "$BRANCH"
+  sudo -u "$GIT_USER" git -C "$REPO_DIR" pull --ff-only
 
   if [[ -n "$current_commit" ]]; then
     echo "$current_commit" > "$prev_commit_file"
@@ -121,7 +149,7 @@ clone_or_update_repo() {
 
   if [[ ! -f "$last_good_file" ]]; then
     # Initialize last_good to current HEAD (best effort).
-    sudo -u www-data git -C "$REPO_DIR" rev-parse HEAD > "$last_good_file"
+    sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse HEAD > "$last_good_file"
   fi
 }
 
@@ -141,8 +169,8 @@ build_web() {
     exit 1
   fi
 
-  sudo -u www-data bash -lc "cd \"$web_dir\" && npm ci"
-  sudo -u www-data bash -lc "cd \"$web_dir\" && npm run build"
+  sudo -u "$SERVICE_USER" bash -lc "cd \"$web_dir\" && npm ci"
+  sudo -u "$SERVICE_USER" bash -lc "cd \"$web_dir\" && npm run build"
 }
 
 write_systemd_service() {
@@ -167,8 +195,8 @@ Environment=PORT=$PORT
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=3
-User=www-data
-Group=www-data
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
 
 [Install]
 WantedBy=multi-user.target
@@ -229,13 +257,16 @@ maybe_enable_https() {
 
 mark_last_good() {
   log "Marking current commit as last known good"
-  sudo -u www-data git -C "$REPO_DIR" rev-parse HEAD > "$APP_ROOT/.last_good_commit"
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse HEAD > "$APP_ROOT/.last_good_commit"
+  fi
 }
 
 main() {
   require_root
   ensure_packages
   ensure_node
+  resolve_repo_dir
   ensure_user_and_dirs
   clone_or_update_repo
   build_web

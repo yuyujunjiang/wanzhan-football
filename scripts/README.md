@@ -17,6 +17,14 @@ cd wanzhan-football
 sudo bash scripts/deploy-ubuntu.sh
 ```
 
+### 已有本地仓库：直接用当前目录部署（不再 clone 到 /srv）
+适合你已经在 `/home/ubuntu/wanzhan-football` 有一份代码的情况：
+
+```bash
+cd /home/ubuntu/wanzhan-football
+sudo USE_LOCAL_REPO=1 SERVICE_USER=ubuntu SERVICE_GROUP=ubuntu bash scripts/deploy-ubuntu.sh
+```
+
 ### 一键部署 + HTTPS（Let's Encrypt）
 确保 DNS A 记录已指向该主机且放行 80/443，然后：
 

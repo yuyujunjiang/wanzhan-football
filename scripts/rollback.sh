@@ -5,6 +5,8 @@ APP_ROOT="${APP_ROOT:-/srv/wanzhan-football}"
 REPO_DIR="${REPO_DIR:-$APP_ROOT/repo}"
 WEB_DIR_REL="${WEB_DIR_REL:-apps/web}"
 SERVICE_NAME="${SERVICE_NAME:-football-calculator}"
+SERVICE_USER="${SERVICE_USER:-www-data}"
+GIT_USER="${GIT_USER:-$SERVICE_USER}"
 
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
@@ -47,21 +49,21 @@ main() {
 
   log "Rolling back to $prev_commit"
   local current_commit
-  current_commit="$(sudo -u www-data git -C "$REPO_DIR" rev-parse HEAD)"
+  current_commit="$(sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse HEAD)"
 
-  sudo -u www-data git -C "$REPO_DIR" fetch --all --prune
-  sudo -u www-data git -C "$REPO_DIR" checkout "$prev_commit"
+  sudo -u "$GIT_USER" git -C "$REPO_DIR" fetch --all --prune
+  sudo -u "$GIT_USER" git -C "$REPO_DIR" checkout "$prev_commit"
 
   log "Rebuilding web app"
-  sudo -u www-data bash -lc "cd \"$REPO_DIR/$WEB_DIR_REL\" && npm ci"
-  sudo -u www-data bash -lc "cd \"$REPO_DIR/$WEB_DIR_REL\" && npm run build"
+  sudo -u "$SERVICE_USER" bash -lc "cd \"$REPO_DIR/$WEB_DIR_REL\" && npm ci"
+  sudo -u "$SERVICE_USER" bash -lc "cd \"$REPO_DIR/$WEB_DIR_REL\" && npm run build"
 
   log "Restarting service: $SERVICE_NAME"
   systemctl restart "$SERVICE_NAME"
 
   log "Updating commit markers"
   echo "$current_commit" > "$prev_file"
-  sudo -u www-data git -C "$REPO_DIR" rev-parse HEAD > "$last_good_file"
+  sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse HEAD > "$last_good_file"
 
   log "Rollback complete"
   echo "- Service: systemctl status $SERVICE_NAME"
