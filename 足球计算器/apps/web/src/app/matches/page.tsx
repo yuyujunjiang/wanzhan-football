@@ -13,6 +13,10 @@ type MatchItem = {
   matchKey: string;
   matchStatus?: string;
   finalScore?: string | null;
+  halfScore?: string | null;
+  goalLine?: string | null;
+  had?: { h?: string; d?: string; a?: string } | null;
+  hhad?: { goalLine?: string; h?: string; d?: string; a?: string } | null;
   outcomeSPF?: string;
   outcomeRQSPF?: string;
 };
@@ -33,12 +37,44 @@ function cardStyle() {
   } as const;
 }
 
+function oddsGrid(label: string, odds: { h?: string; d?: string; a?: string } | null | undefined) {
+  return (
+    <div
+      style={{
+        border: "1px solid #eee",
+        borderRadius: 12,
+        padding: 10,
+        background: "#fff",
+      }}
+    >
+      <div style={{ fontSize: 12, color: "#666", display: "flex", justifyContent: "space-between" }}>
+        <span>{label}</span>
+      </div>
+      <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <div style={{ border: "1px solid #f1f1f1", borderRadius: 10, padding: "8px 10px" }}>
+          <div style={{ fontSize: 11, color: "#666" }}>主胜</div>
+          <div style={{ fontWeight: 750, marginTop: 4 }}>{odds?.h ?? "-"}</div>
+        </div>
+        <div style={{ border: "1px solid #f1f1f1", borderRadius: 10, padding: "8px 10px" }}>
+          <div style={{ fontSize: 11, color: "#666" }}>平</div>
+          <div style={{ fontWeight: 750, marginTop: 4 }}>{odds?.d ?? "-"}</div>
+        </div>
+        <div style={{ border: "1px solid #f1f1f1", borderRadius: 10, padding: "8px 10px" }}>
+          <div style={{ fontSize: 11, color: "#666" }}>客胜</div>
+          <div style={{ fontWeight: 750, marginTop: 4 }}>{odds?.a ?? "-"}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MatchesPage() {
   const [date, setDate] = useState(() => formatLocalDateYYYYMMDD(new Date()));
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<MatchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   async function load(d: string) {
     let cancelled = false;
@@ -196,6 +232,61 @@ export default function MatchesPage() {
                 <div style={{ marginTop: 4, fontWeight: 650 }}>{m.outcomeRQSPF ?? "-"}</div>
               </div>
             </div>
+
+            <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {m.halfScore ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #eee",
+                    background: "#fafafa",
+                    color: "#444",
+                  }}
+                >
+                  半场 {m.halfScore}
+                </div>
+              ) : null}
+              {m.goalLine ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #eee",
+                    background: "#fafafa",
+                    color: "#444",
+                  }}
+                >
+                  让球 {m.goalLine}
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setExpanded((s) => ({ ...s, [m.matchKey]: !s[m.matchKey] }))}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                border: "1px solid #eee",
+                background: "#fff",
+                padding: "10px 12px",
+                borderRadius: 12,
+                fontSize: 14,
+                color: "#111",
+              }}
+            >
+              {expanded[m.matchKey] ? "收起详情" : "展开赔率详情"}
+            </button>
+
+            {expanded[m.matchKey] ? (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                {oddsGrid("胜平负 (HAD)", m.had)}
+                {oddsGrid(`让球胜平负 (HHAD) ${m.hhad?.goalLine ?? ""}`.trim(), m.hhad)}
+              </div>
+            ) : null}
 
             <div style={{ marginTop: 8, fontSize: 12, color: "#666", wordBreak: "break-word" }}>
               matchKey：{m.matchKey}
