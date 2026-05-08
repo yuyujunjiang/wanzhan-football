@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://football-calculator.local/schema/report.json",
+  "title": "PayoutReport",
+  "type": "object",
+  "required": ["status", "totalPayout", "details", "unmatchedLegs"],
+  "properties": {
+    "status": { "enum": ["won", "lost", "pending", "partial"] },
+    "totalPayout": { "type": "number", "minimum": 0 },
+    "details": { "type": "object" },
+    "unmatchedLegs": { "type": "array", "items": { "type": "string" } }
+  }
+}
