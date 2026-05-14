@@ -5,7 +5,12 @@ import uuid
 from typing import Any
 
 from app.domain.ledger.calculations import round2
-from app.domain.ledger.models import LedgerLegInput, LedgerLegOut, LedgerStatus, LedgerTicketOut
+from app.domain.ledger.models import (
+    LedgerLegInput,
+    LedgerLegOut,
+    LedgerStatus,
+    LedgerTicketOut,
+)
 
 from .db import connect, migrate, now_epoch
 
@@ -139,7 +144,7 @@ class LedgerStore:
         leg_results: list[dict[str, Any]],
     ) -> LedgerTicketOut | None:
         conn = self._get_conn()
-        conn.execute(
+        cursor = conn.execute(
             """
             UPDATE ledger_tickets
             SET status = 'settled', actual_payout = ?, profit = ?, settled_at = ?
@@ -147,6 +152,10 @@ class LedgerStore:
             """,
             (round2(actual_payout), round2(profit), now_epoch(), ticket_id),
         )
+        if cursor.rowcount == 0:
+            conn.commit()
+            return self.get_ticket(ticket_id)
+
         for result in leg_results:
             conn.execute(
                 """
@@ -169,8 +178,14 @@ class LedgerStore:
             """
             SELECT
                 COALESCE(SUM(stake), 0) AS stake,
-                COALESCE(SUM(CASE WHEN status = 'settled' THEN actual_payout ELSE 0 END), 0) AS payout,
-                COALESCE(SUM(CASE WHEN status = 'settled' THEN profit ELSE 0 END), 0) AS profit,
+                COALESCE(
+                    SUM(CASE WHEN status = 'settled' THEN actual_payout ELSE 0 END),
+                    0
+                ) AS payout,
+                COALESCE(
+                    SUM(CASE WHEN status = 'settled' THEN profit ELSE 0 END),
+                    0
+                ) AS profit,
                 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
                 SUM(CASE WHEN status = 'settled' THEN 1 ELSE 0 END) AS settled_count,
                 COUNT(*) AS ticket_count

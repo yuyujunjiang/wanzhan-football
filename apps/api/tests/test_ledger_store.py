@@ -88,3 +88,36 @@ def test_summary_counts_pending_and_settled_tickets(tmp_path):
     assert summary["pendingCount"] == 1
     assert summary["settledCount"] == 1
     assert summary["ticketCount"] == 2
+
+
+def test_settle_already_settled_ticket_does_not_overwrite_leg_results(tmp_path):
+    store = _store(tmp_path)
+    ticket = store.create_ticket(
+        date="2026-05-14",
+        status="pending",
+        pass_type="1x1",
+        multiplier=10,
+        stake=20.0,
+        estimated_payout=36.0,
+        actual_payout=0.0,
+        profit=0.0,
+        legs=[_leg(1)],
+    )
+    settled = store.settle_ticket(
+        ticket_id=ticket.id,
+        actual_payout=36.0,
+        profit=16.0,
+        leg_results=[{"legId": ticket.legs[0].id, "resultSelection": "胜", "isHit": True}],
+    )
+    assert settled is not None
+
+    settled_again = store.settle_ticket(
+        ticket_id=ticket.id,
+        actual_payout=0.0,
+        profit=-20.0,
+        leg_results=[{"legId": ticket.legs[0].id, "resultSelection": "负", "isHit": False}],
+    )
+
+    assert settled_again is not None
+    assert settled_again.legs[0].resultSelection == "胜"
+    assert settled_again.legs[0].isHit is True
