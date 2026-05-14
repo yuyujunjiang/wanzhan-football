@@ -57,9 +57,21 @@ async def _matches_scheduler_loop() -> None:
         now = dt.datetime.now(_TZ)
         if last_full_refresh is None or (now - last_full_refresh).total_seconds() >= full_interval:
             await _refresh_once(_dates_to_refresh())
+            try:
+                from app.routes.ledger import settle_pending_tickets
+
+                await asyncio.to_thread(settle_pending_tickets)
+            except Exception:
+                logger.exception("failed to settle pending ledger tickets")
             last_full_refresh = now
         else:
             await _refresh_once(_fast_dates_to_refresh())
+            try:
+                from app.routes.ledger import settle_pending_tickets
+
+                await asyncio.to_thread(settle_pending_tickets)
+            except Exception:
+                logger.exception("failed to settle pending ledger tickets")
         await asyncio.sleep(interval)
 
 
