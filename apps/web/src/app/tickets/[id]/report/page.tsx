@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { PageShell } from "../../../../components/PageShell";
+import { WanzhanShell } from "../../../../components/wanzhan/WanzhanShell";
 import { getTicket, type Ticket } from "../../../../lib/api";
 import { addTicket } from "../../../../lib/wanzhanLedger";
 
@@ -131,7 +131,7 @@ export default function TicketReportPage() {
   );
 
   return (
-    <PageShell title="计算报告" back bottom={bottom}>
+    <WanzhanShell title="计算报告" back bottom={bottom}>
       {loading ? <div style={{ color: "#666", fontSize: 14 }}>加载中...</div> : null}
 
       {error ? (
@@ -262,7 +262,6 @@ export default function TicketReportPage() {
           </div>
         </div>
       ) : null}
-    </PageShell>
+    </WanzhanShell>
   );
 }
-

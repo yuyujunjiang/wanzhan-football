@@ -8,6 +8,7 @@
  * - set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`
  */
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+export const OCR_PROVIDER = process.env.NEXT_PUBLIC_OCR_PROVIDER;
 
 export type HealthResponse = { status: string };
 
@@ -15,6 +16,7 @@ export type TicketPlayType = "SPF" | "RQSPF";
 
 export type TicketLeg = {
   matchKey: string;
+  playType?: TicketPlayType | null;
   selection: string;
   handicap: number | null;
   sp: number;
@@ -74,12 +76,11 @@ async function apiFetch<T>(
 export async function recognizeTicket(files: File[]): Promise<RecognizeTicketResponse> {
   const form = new FormData();
   for (const file of files) form.append("images", file);
+  const headers: HeadersInit = {};
+  if (OCR_PROVIDER) headers["X-Ocr-Provider"] = OCR_PROVIDER;
   return await apiFetch<RecognizeTicketResponse>("/api/tickets/recognize", {
     method: "POST",
-    headers: {
-      // Default to real OCR; backend supports switching providers by header.
-      "X-Ocr-Provider": "paddle",
-    },
+    headers,
     body: form,
   });
 }
@@ -101,4 +102,3 @@ export async function calculateTicket(ticket: Ticket): Promise<CalculateTicketRe
     json: ticket,
   });
 }
-

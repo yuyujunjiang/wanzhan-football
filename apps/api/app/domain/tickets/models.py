@@ -14,6 +14,7 @@ class PlayType(str, Enum):
 
 class Leg(BaseModel):
     matchKey: Annotated[str, Field(min_length=1)]
+    playType: PlayType | None = None
     selection: str
     handicap: float | None = None
     sp: Annotated[float, Field(gt=1.0, le=1000)]
@@ -32,6 +33,7 @@ class Ticket(BaseModel):
 
 class LegDraft(BaseModel):
     matchKey: str | None = None
+    playType: PlayType | None = None
     selection: str | None = None
     handicap: float | None = None
     sp: float | None = None

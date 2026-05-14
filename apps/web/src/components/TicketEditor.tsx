@@ -32,7 +32,16 @@ function selectionOptions(playType: TicketPlayType): string[] {
 function ensureSelection(playType: TicketPlayType, current: string): string {
   const opts = selectionOptions(playType);
   if (!current) return opts[0] ?? "";
-  return current;
+  if (opts.includes(current)) return current;
+  if (playType === "RQSPF") {
+    if (current === "胜") return "让胜";
+    if (current === "平") return "让平";
+    if (current === "负") return "让负";
+  }
+  if (current === "让胜") return "胜";
+  if (current === "让平") return "平";
+  if (current === "让负") return "负";
+  return opts[0] ?? current;
 }
 
 export function TicketEditor(props: {
@@ -63,6 +72,7 @@ export function TicketEditor(props: {
                 const playType = e.currentTarget.value as TicketPlayType;
                 const nextLegs = ticket.legs.map((l) => ({
                   ...l,
+                  playType,
                   selection: ensureSelection(playType, l.selection),
                   handicap: playType === "RQSPF" ? l.handicap ?? 0 : null,
                 }));
@@ -113,6 +123,7 @@ export function TicketEditor(props: {
             update({
               legs: ticket.legs.concat({
                 matchKey: "",
+                playType: ticket.playType,
                 selection: ensureSelection(ticket.playType, ""),
                 handicap: ticket.playType === "RQSPF" ? 0 : null,
                 sp: 1.0,
@@ -132,7 +143,8 @@ export function TicketEditor(props: {
       </div>
 
       {ticket.legs.map((leg, idx) => {
-        const opts = selectionOptions(ticket.playType);
+        const legPlayType = leg.playType ?? ticket.playType;
+        const opts = selectionOptions(legPlayType);
         const selectionValues = opts.includes(leg.selection) ? opts : [leg.selection, ...opts];
 
         return (
@@ -165,6 +177,25 @@ export function TicketEditor(props: {
               />
             </div>
 
+            <div style={{ marginTop: 10 }}>
+              <div style={labelStyle()}>本场玩法</div>
+              <select
+                value={legPlayType}
+                onChange={(e) => {
+                  const playType = e.currentTarget.value as TicketPlayType;
+                  updateLeg(idx, {
+                    playType,
+                    selection: ensureSelection(playType, leg.selection),
+                    handicap: playType === "RQSPF" ? leg.handicap ?? 0 : null,
+                  });
+                }}
+                style={inputStyle()}
+              >
+                <option value="SPF">胜平负 (SPF)</option>
+                <option value="RQSPF">让球胜平负 (RQSPF)</option>
+              </select>
+            </div>
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
               <div>
                 <div style={labelStyle()}>选项</div>
@@ -194,7 +225,7 @@ export function TicketEditor(props: {
               </div>
             </div>
 
-            <div style={{ marginTop: 10, opacity: ticket.playType === "RQSPF" ? 1 : 0.65 }}>
+            <div style={{ marginTop: 10, opacity: legPlayType === "RQSPF" ? 1 : 0.65 }}>
               <div style={labelStyle()}>让球（RQSPF 必填）</div>
               <input
                 type="number"
@@ -209,7 +240,7 @@ export function TicketEditor(props: {
                         : Number(e.currentTarget.value),
                   })
                 }
-                placeholder={ticket.playType === "RQSPF" ? "例如：-1" : "SPF 可留空"}
+                placeholder={legPlayType === "RQSPF" ? "例如：+1" : "SPF 可留空"}
                 style={inputStyle()}
               />
             </div>
@@ -219,4 +250,3 @@ export function TicketEditor(props: {
     </div>
   );
 }
-

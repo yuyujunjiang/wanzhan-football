@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 export function PageShell(props: {
   title: string;
   children: ReactNode;
+  subHeader?: ReactNode;
   bottom?: ReactNode;
   back?: boolean;
   right?: ReactNode;
@@ -60,6 +61,12 @@ export function PageShell(props: {
             <div style={{ display: "flex", justifyContent: "flex-end" }}>{props.right}</div>
           ) : null}
         </div>
+
+        {props.subHeader ? (
+          <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 12px 12px" }}>
+            {props.subHeader}
+          </div>
+        ) : null}
       </header>
 
       <main

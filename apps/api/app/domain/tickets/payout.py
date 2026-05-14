@@ -15,14 +15,15 @@ def compute_payout(ticket: Ticket, results_by_match_key: dict) -> PayoutReport:
 
     for leg in ticket.legs:
         res = results_by_match_key.get(leg.matchKey)
+        leg_play_type = leg.playType or ticket.playType
         if not res:
             unmatched_legs.append(leg.matchKey)
             leg_hits.append(False)
             continue
 
-        if ticket.playType == PlayType.SPF:
+        if leg_play_type == PlayType.SPF:
             leg_hits.append(res.get("outcomeSPF") == leg.selection)
-        elif ticket.playType == PlayType.RQSPF:
+        elif leg_play_type == PlayType.RQSPF:
             leg_hits.append(res.get("outcomeRQSPF") == leg.selection)
         else:
             leg_hits.append(False)
@@ -56,4 +57,3 @@ def compute_payout(ticket: Ticket, results_by_match_key: dict) -> PayoutReport:
         details={"legHits": leg_hits},
         unmatchedLegs=[],
     )
-

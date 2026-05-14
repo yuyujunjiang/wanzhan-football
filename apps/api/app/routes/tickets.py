@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 
 from app.domain.ocr.factory import get_ocr_service
 from app.domain.parser.ticket_parser import parse_ticket
 from app.domain.results.factory import get_results_provider
-from app.domain.tickets.models import PayoutReport, Ticket, TicketDraft
+from app.domain.tickets.models import PayoutReport, Ticket
 from app.domain.tickets.payout import compute_payout
 from app.domain.tickets.validate import TicketValidationError, validate_ticket
 from app.storage.anonymous_store import AnonymousTicketStore
@@ -19,22 +19,29 @@ store = AnonymousTicketStore()
 def _anon_token(
     *,
     anon_token_query: str | None = None,
-    x_anon_token: str | None = Header(default=None, alias="X-Anon-Token"),
+    x_anon_token: Annotated[str | None, Header(alias="X-Anon-Token")] = None,
 ) -> str | None:
     return x_anon_token or anon_token_query
 
 
 @router.post("/recognize")
 def recognize_ticket(
-    images: list[UploadFile] = File(...),
+    images: Annotated[list[UploadFile], File()],
     anon_token_query: str | None = None,
-    x_anon_token: str | None = Header(default=None, alias="X-Anon-Token"),
-    x_ocr_provider: str | None = Header(default=None, alias="X-Ocr-Provider"),
+    x_anon_token: Annotated[str | None, Header(alias="X-Anon-Token")] = None,
+    x_ocr_provider: Annotated[str | None, Header(alias="X-Ocr-Provider")] = None,
 ) -> dict[str, Any]:
     source_images = [img.filename or "unknown" for img in images]
     image_bytes = [img.file.read() for img in images]
-    ocr = get_ocr_service(provider=x_ocr_provider)
-    lines = ocr.recognize(images=image_bytes, source_images=source_images)
+    try:
+        ocr = get_ocr_service(provider=x_ocr_provider)
+        lines = ocr.recognize(images=image_bytes, source_images=source_images)
+    except Exception as e:
+        provider = x_ocr_provider or "server-default"
+        raise HTTPException(
+            status_code=503,
+            detail=f"OCR provider {provider!r} failed: {e}",
+        ) from e
     draft = parse_ticket(lines, source_images)
     ticket_id = store.create(
         ticket=draft.model_dump(),
@@ -57,7 +64,7 @@ def validate(ticket: Ticket) -> dict[str, Any]:
 def calculate(
     ticket: Ticket,
     anon_token_query: str | None = None,
-    x_anon_token: str | None = Header(default=None, alias="X-Anon-Token"),
+    x_anon_token: Annotated[str | None, Header(alias="X-Anon-Token")] = None,
 ) -> dict[str, Any]:
     try:
         validate_ticket(ticket)
@@ -89,4 +96,3 @@ def get_ticket(ticket_id: str) -> dict[str, Any]:
         "report": stored.report,
         "createdAt": stored.createdAt,
     }
-

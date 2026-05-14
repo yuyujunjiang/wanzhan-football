@@ -147,6 +147,32 @@ class CachedSportteryResultsProvider(ResultsProvider):
     def __init__(self) -> None:
         self._upstream = SportteryResultsProvider()
 
+    def refresh_matches(self, *, date: str) -> list[dict[str, Any]]:
+        """
+        Force-refresh a day's Sporttery snapshot into the local cache.
+
+        The public list endpoint still keeps TTL-based refresh behavior, while the
+        background scheduler uses this method to warm data before users open pages.
+        """
+        snapshot = self._upstream.list_matches(date=date)
+        fixed = [_extract_fixed(m) for m in snapshot]
+        by_mid: dict[str, dict[str, Any]] = {}
+        for m in snapshot:
+            mid = m.get("matchId")
+            if mid is None:
+                continue
+            by_mid[str(mid)] = {**_extract_dynamic_odds(m), **_extract_dynamic_results(m)}
+
+        now = _now_iso()
+        cache = {
+            "date": date,
+            "fixed": fixed,
+            "dynamic": {"fetchedAtOdds": now, "fetchedAtResults": now, "byMatchId": by_mid},
+            "meta": {"createdAt": now, "updatedAt": now},
+        }
+        _write_cache(date, cache)
+        return _merge_to_matches(cache)
+
     def list_matches(self, *, date: str) -> list[dict[str, Any]]:
         cache = _read_cache(date) or _build_empty_cache(date)
 
@@ -244,4 +270,3 @@ class CachedSportteryResultsProvider(ResultsProvider):
     def get_results_by_match_keys(self, match_keys: list[str]) -> dict[str, dict[str, Any]]:
         # Keep existing behavior for ticket settlement logic (no caching here yet).
         return self._upstream.get_results_by_match_keys(match_keys)
-

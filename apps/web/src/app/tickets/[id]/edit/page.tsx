@@ -2,8 +2,8 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { PageShell } from "../../../../components/PageShell";
 import { TicketEditor } from "../../../../components/TicketEditor";
+import { WanzhanShell } from "../../../../components/wanzhan/WanzhanShell";
 import { calculateTicket, getTicket, validateTicket, type Ticket } from "../../../../lib/api";
 
 const defaultTicket: Ticket = {
@@ -125,7 +125,7 @@ export default function TicketEditPage() {
   );
 
   return (
-    <PageShell title="校对票据" back bottom={bottom}>
+    <WanzhanShell title="校对票据" back bottom={bottom}>
       {loading ? (
         <div style={{ color: "#666", fontSize: 14 }}>加载中...</div>
       ) : null}
@@ -196,7 +196,6 @@ export default function TicketEditPage() {
       <div style={{ marginTop: 12 }}>
         <TicketEditor ticket={ticket} onChange={setTicket} />
       </div>
-    </PageShell>
+    </WanzhanShell>
   );
 }
-

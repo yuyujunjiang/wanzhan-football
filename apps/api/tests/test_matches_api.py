@@ -4,6 +4,8 @@ import os
 
 def _make_client(tmp_path):
     os.environ["FC_SQLITE_PATH"] = str(tmp_path / "test.sqlite3")
+    os.environ["FC_RESULTS_PROVIDER"] = "mock"
+    os.environ["FC_MATCHES_SCHEDULER_ENABLED"] = "false"
 
     # Import after env var so app uses test DB.
     app_settings = importlib.import_module("app.settings")
@@ -52,4 +54,3 @@ def test_matches_range_returns_day_groups(tmp_path) -> None:
     assert len(body) == 3
     assert body[0]["date"] == "2026-05-08"
     assert "matches" in body[0]
-

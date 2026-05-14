@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ImageUpload } from "../../components/ImageUpload";
-import { PageShell } from "../../components/PageShell";
+import { WanzhanShell } from "../../components/wanzhan/WanzhanShell";
 import { recognizeTicket } from "../../lib/api";
 
 export default function UploadPage() {
@@ -15,7 +15,7 @@ export default function UploadPage() {
   const canSubmit = useMemo(() => files.length > 0 && !loading, [files.length, loading]);
 
   return (
-    <PageShell
+    <WanzhanShell
       title="上传识别"
       back
       bottom={
@@ -66,7 +66,6 @@ export default function UploadPage() {
           {error}
         </div>
       ) : null}
-    </PageShell>
+    </WanzhanShell>
   );
 }
-

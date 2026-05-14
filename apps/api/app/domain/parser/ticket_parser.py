@@ -10,6 +10,8 @@ _PLAY_TYPE_RE = re.compile(r"\b(SPF|RQSPF)\b")
 _CN_PLAY_TYPE_RE = re.compile(r"(胜平负|让球胜平负)")
 _MULTIPLIER_RE = re.compile(r"(?:倍(?:投)?)\s*([1-9]\d{0,3})")
 _MULTIPLIER_CN_RE = re.compile(r"([1-9]\d{0,3})\s*倍")
+_TOTAL_AMOUNT_RE = re.compile(r"(?:合计|金额|总计)\s*(?P<amount>\d+(?:\.\d+)?)\s*元")
+_UNIT_COUNT_RE = re.compile(r"共\s*(?P<count>\d+)\s*注")
 _PASS_TYPE_RE = re.compile(r"\b(\d+x1)\b")
 _PASS_TYPE_CN_RE = re.compile(r"(?:过关方式|串关)\s*([0-9]+[xX]1)", re.IGNORECASE)
 _ISSUE_RE = re.compile(r"第\s*(?P<issue>\d{7})\s*期")
@@ -22,6 +24,35 @@ _LEG_RE = re.compile(
 _HANDICAP_RE = re.compile(r"(?P<handicap>[+-]?\d+(?:\.\d+)?)")
 _TEAM_VS_RE = re.compile(r"(?P<home>[^\s]+)\s*(?:vs|VS|Vs|对阵|—|-)\s*(?P<away>[^\s]+)")
 _SP_AT_RE = re.compile(r"(?P<sel>让胜|让平|让负|胜|平|负)\s*[@＠]?\s*(?P<sp>\d+(?:\.\d+)?)")
+
+
+def _play_type_from_cn(text: str) -> PlayType | None:
+    if "让球胜平负" in text:
+        return PlayType.RQSPF
+    if "胜平负" in text:
+        return PlayType.SPF
+    return None
+
+
+def _infer_multiplier(
+    *,
+    total_amount: float | None,
+    unit_count: int | None,
+    pass_types: list[str],
+    legs_count: int,
+) -> int | None:
+    if total_amount is None:
+        return None
+    if unit_count is None:
+        # Common receipt line: 2x1 with two legs means one 2-yuan bet.
+        unit_count = 1 if pass_types == ["2x1"] and legs_count == 2 else None
+    if not unit_count:
+        return None
+    multiplier = total_amount / (2 * unit_count)
+    rounded = round(multiplier)
+    if abs(multiplier - rounded) < 0.001 and 1 <= rounded <= 9999:
+        return rounded
+    return None
 
 
 def _issue_to_date(issue7: str) -> str | None:
@@ -66,6 +97,8 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
     pending_leg_play_type: PlayType | None = None
     pending_handicap: float | None = None
     ticket_date: str | None = None
+    total_amount: float | None = None
+    unit_count: int | None = None
 
     for line in lines:
         text = line.text.strip()
@@ -104,6 +137,16 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
             if cm:
                 multiplier = int(cm.group(1))
 
+        if total_amount is None:
+            tm = _TOTAL_AMOUNT_RE.search(text)
+            if tm:
+                total_amount = float(tm.group("amount"))
+
+        if unit_count is None:
+            um = _UNIT_COUNT_RE.search(text)
+            if um:
+                unit_count = int(um.group("count"))
+
         m = _PASS_TYPE_RE.search(text)
         if m:
             pt = m.group(1)
@@ -125,12 +168,21 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
             sp = float(m.group("sp"))
 
             handicap: float | None = None
+            leg_play_type = pending_leg_play_type
+            if leg_play_type is None:
+                leg_play_type = PlayType.RQSPF if selection.startswith("让") else play_type
             if selection.startswith("让"):
                 hm = _HANDICAP_RE.search(match_key)
                 if hm:
                     handicap = float(hm.group("handicap"))
             legs.append(
-                LegDraft(matchKey=match_key, selection=selection, handicap=handicap, sp=sp)
+                LegDraft(
+                    matchKey=match_key,
+                    playType=leg_play_type,
+                    selection=selection,
+                    handicap=handicap,
+                    sp=sp,
+                )
             )
             continue
 
@@ -155,8 +207,8 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
             pending_match_key = " ".join(parts).strip()
             continue
 
-        # More lenient leg parsing for real ticket OCR lines:
-        # Try to find selection+SP pair and a reasonable matchKey (often contains "主队:... 客队:..." or "A vs B").
+        # More lenient leg parsing for real ticket OCR lines. Try to find
+        # selection+SP and a reasonable matchKey from team text.
         spm = _SP_AT_RE.search(text)
         if spm:
             selection = spm.group("sel").strip()
@@ -164,7 +216,7 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
             # strip common currency suffixes to keep float parse robust
             # (we already captured only the number, but OCR often keeps trailing "元" in the line)
 
-            # matchKey: prefer previously captured team context, otherwise strip out the selection+sp fragment.
+            # Prefer captured team context; otherwise strip the selection+SP fragment.
             match_key = pending_match_key
             if not match_key:
                 match_key = text
@@ -174,6 +226,7 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
                 match_key = re.sub(r"\\s+", " ", match_key).strip()
 
             handicap: float | None = None
+            leg_play_type = pending_leg_play_type or _play_type_from_cn(text) or play_type
             if pending_leg_play_type == PlayType.RQSPF and not selection.startswith("让"):
                 # RQSPF票面有时写作「负@2.130」，但语义是「让负」
                 if selection == "胜":
@@ -182,8 +235,10 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
                     selection = "让平"
                 elif selection == "负":
                     selection = "让负"
+                leg_play_type = PlayType.RQSPF
 
             if selection.startswith("让"):
+                leg_play_type = PlayType.RQSPF
                 if pending_handicap is not None:
                     handicap = pending_handicap
                 else:
@@ -191,11 +246,27 @@ def parse_ticket(lines: list[OcrLine], source_images: list[str]) -> TicketDraft:
                     hm = re.search(r"(?P<handicap>[+-]\d+(?:\.\d+)?)", match_key or "")
                     if hm:
                         handicap = float(hm.group("handicap"))
-            legs.append(LegDraft(matchKey=match_key or None, selection=selection, handicap=handicap, sp=sp))
+            legs.append(
+                LegDraft(
+                    matchKey=match_key or None,
+                    playType=leg_play_type,
+                    selection=selection,
+                    handicap=handicap,
+                    sp=sp,
+                )
+            )
             pending_match_key = None
             pending_week = None
             pending_leg_play_type = None
             pending_handicap = None
+
+    if multiplier is None:
+        multiplier = _infer_multiplier(
+            total_amount=total_amount,
+            unit_count=unit_count,
+            pass_types=pass_types,
+            legs_count=len(legs),
+        )
 
     if not legs:
         warnings.append("no_legs_parsed")

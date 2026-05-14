@@ -47,11 +47,12 @@ def validate_ticket(ticket: Ticket) -> None:
         )
 
     for idx, leg in enumerate(ticket.legs):
+        leg_play_type = leg.playType or ticket.playType
         if leg.sp is None or leg.sp <= 1.0:
             raise TicketValidationError(
                 f"leg[{idx}] sp must be > 1.0, got {leg.sp!r}"
             )
-        if ticket.playType == PlayType.RQSPF and leg.handicap is None:
+        if leg_play_type == PlayType.RQSPF and leg.handicap is None:
             raise TicketValidationError(
                 f"leg[{idx}] handicap is required for RQSPF"
             )

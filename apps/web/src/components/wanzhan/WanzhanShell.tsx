@@ -8,15 +8,22 @@ export function WanzhanShell(props: {
   title: string;
   children: ReactNode;
   top?: ReactNode;
+  bottom?: ReactNode;
+  back?: boolean;
   right?: ReactNode;
 }) {
   return (
     <>
-      <PageShell title={props.title} back={false} bottom={<TabBar />} right={props.right}>
+      <PageShell
+        title={props.title}
+        back={props.back ?? false}
+        subHeader={<TabBar />}
+        right={props.right}
+        bottom={props.bottom}
+      >
         {props.top ? <div style={{ marginBottom: 12 }}>{props.top}</div> : null}
         {props.children}
       </PageShell>
     </>
   );
 }
-
