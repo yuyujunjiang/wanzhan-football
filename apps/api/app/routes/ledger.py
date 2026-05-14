@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 from typing import Any
 
@@ -13,6 +14,7 @@ from app.domain.results.factory import get_results_provider
 from app.storage.ledger_store import LedgerStore
 
 router = APIRouter(prefix="/api/ledger", tags=["ledger"])
+logger = logging.getLogger(__name__)
 store = LedgerStore()
 _store_sqlite_path = os.environ.get("FC_SQLITE_PATH")
 _TZ = dt.timezone(dt.timedelta(hours=8))
@@ -47,19 +49,36 @@ def _settle_created_ticket(ticket: LedgerTicketOut) -> LedgerTicketOut:
     return settled or ticket
 
 
+def _parse_kickoff_time(value: str | None) -> dt.datetime | None:
+    if value is None:
+        return None
+    try:
+        kickoff = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=_TZ)
+    return kickoff
+
+
 def _ticket_is_past_result_window(ticket: LedgerTicketOut) -> bool:
     latest_kickoff: dt.datetime | None = None
     for leg in ticket.legs:
-        if leg.kickoffTime is None:
-            return True
-        kickoff = dt.datetime.fromisoformat(leg.kickoffTime)
-        if kickoff.tzinfo is None:
-            kickoff = kickoff.replace(tzinfo=_TZ)
+        kickoff = _parse_kickoff_time(leg.kickoffTime)
+        if kickoff is None:
+            return False
         latest_kickoff = max(latest_kickoff, kickoff) if latest_kickoff else kickoff
 
     if latest_kickoff is None:
-        return True
+        return False
     return dt.datetime.now(_TZ) >= latest_kickoff + dt.timedelta(hours=4)
+
+
+def _settle_pending_tickets_best_effort() -> None:
+    try:
+        settle_pending_tickets()
+    except Exception:
+        logger.exception("failed to settle pending ledger tickets during read")
 
 
 def settle_pending_tickets() -> int:
@@ -115,7 +134,7 @@ def settle_tickets() -> dict[str, int]:
 
 @router.get("/summary")
 def summary(start: dt.date, end: dt.date) -> dict[str, float | int]:
-    settle_pending_tickets()
+    _settle_pending_tickets_best_effort()
     return _active_store().summary(start=start.isoformat(), end=end.isoformat())
 
 
@@ -129,7 +148,7 @@ def list_tickets(
     if status not in {"all", "pending", "settled"}:
         raise HTTPException(status_code=400, detail="invalid status")
 
-    settle_pending_tickets()
+    _settle_pending_tickets_best_effort()
     tickets = _active_store().list_tickets(
         date=date.isoformat() if date is not None else None,
         start=start.isoformat() if start is not None else None,
@@ -141,7 +160,7 @@ def list_tickets(
 
 @router.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: str) -> dict[str, Any]:
-    settle_pending_tickets()
+    _settle_pending_tickets_best_effort()
     ticket = _active_store().get_ticket(ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="not found")

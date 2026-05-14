@@ -84,3 +84,42 @@ def test_summary_and_ticket_list_return_created_tickets(tmp_path):
     assert summary["stake"] == 20.0
     assert summary["pendingCount"] == 1
     assert len(tickets) == 1
+
+
+def test_bad_kickoff_time_ticket_does_not_break_reads(tmp_path):
+    client = _client(tmp_path)
+    payload = _payload("schedule")
+    payload["legs"][0]["kickoffTime"] = "not-a-date"
+
+    create_resp = client.post("/api/ledger/tickets", json=payload)
+    tickets_resp = client.get("/api/ledger/tickets?date=2026-05-14&status=all")
+    summary_resp = client.get("/api/ledger/summary?start=2026-05-14&end=2026-05-14")
+
+    assert create_resp.status_code == 200
+    assert tickets_resp.status_code == 200
+    assert summary_resp.status_code == 200
+    assert tickets_resp.json()[0]["status"] == "pending"
+    assert summary_resp.json()["pendingCount"] == 1
+
+
+def test_reads_return_stored_data_when_best_effort_settlement_fails(tmp_path, monkeypatch):
+    client = _client(tmp_path)
+    created = client.post("/api/ledger/tickets", json=_payload("schedule")).json()
+
+    ledger = importlib.import_module("app.routes.ledger")
+
+    def fail_settlement():
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(ledger, "settle_pending_tickets", fail_settlement)
+
+    summary_resp = client.get("/api/ledger/summary?start=2026-05-14&end=2026-05-14")
+    tickets_resp = client.get("/api/ledger/tickets?date=2026-05-14&status=all")
+    ticket_resp = client.get(f"/api/ledger/tickets/{created['id']}")
+
+    assert summary_resp.status_code == 200
+    assert summary_resp.json()["ticketCount"] == 1
+    assert tickets_resp.status_code == 200
+    assert len(tickets_resp.json()) == 1
+    assert ticket_resp.status_code == 200
+    assert ticket_resp.json()["id"] == created["id"]
