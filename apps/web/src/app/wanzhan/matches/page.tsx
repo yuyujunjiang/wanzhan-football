@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { WanzhanShell } from "../../../components/wanzhan/WanzhanShell";
 import { StatStrip } from "../../../components/wanzhan/StatStrip";
-import { API_BASE_URL } from "../../../lib/api";
+import { API_BASE_URL, createLedgerTicket } from "../../../lib/api";
+import { computeEstimatedPayout, computeStake } from "../../../lib/ledgerMath";
 import { deriveMatchPhase, formatKickoffClock, phaseLabel, type MatchPhase } from "../../../lib/matchDisplay";
 import { summarizeDay } from "../../../lib/wanzhanLedger";
 
@@ -14,6 +15,7 @@ type MatchItem = {
   awayTeam: string;
   kickoffTime: string;
   matchKey: string;
+  matchId?: number | null;
   matchStatus?: string;
   finalScore?: string | null;
   halfScore?: string | null;
@@ -50,6 +52,46 @@ function addCalendarDays(isoDate: string, delta: number): string {
 }
 
 type ViewMode = "schedule" | "results";
+type PlayType = "SPF" | "RQSPF";
+
+type SelectedLeg = {
+  matchKey: string;
+  matchId?: number | null;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffTime?: string | null;
+  playType: PlayType;
+  selection: string;
+  sp: number;
+  handicap?: number | null;
+};
+
+function parseOdd(value: unknown) {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n > 1 ? n : null;
+}
+
+function parseHandicap(value: unknown) {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatSelectedKickoff(kickoffTime?: string | null) {
+  const t = (kickoffTime ?? "").trim();
+  if (!t) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
+    const parsed = new Date(t);
+    return Number.isNaN(parsed.getTime())
+      ? t
+      : parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return t.replace(/:00$/, "");
+}
+
+function selectedKey(matchKey: string) {
+  return matchKey;
+}
 
 function cardStyle() {
   return {
@@ -60,7 +102,57 @@ function cardStyle() {
   } as const;
 }
 
-function oddsGrid(label: string, odds: { h?: string; d?: string; a?: string } | null | undefined) {
+function oddsButtonStyle(active: boolean, disabled: boolean) {
+  return {
+    border: active ? "1px solid #111" : "1px solid #eee",
+    borderRadius: 10,
+    padding: "8px 10px",
+    background: active ? "#111" : disabled ? "#f7f7f7" : "#fff",
+    color: active ? "#fff" : disabled ? "#aaa" : "#111",
+    textAlign: "left",
+    cursor: disabled ? "not-allowed" : "pointer",
+    minWidth: 0,
+  } as const;
+}
+
+function OddsOptionButton({
+  title,
+  value,
+  active,
+  onClick,
+}: {
+  title: string;
+  value?: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const sp = parseOdd(value);
+  const disabled = sp == null;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={disabled ? undefined : onClick}
+      style={oddsButtonStyle(active, disabled)}
+    >
+      <div style={{ fontSize: 11, color: active ? "#ddd" : disabled ? "#aaa" : "#666" }}>{title}</div>
+      <div style={{ fontWeight: 750, marginTop: 4 }}>{value ?? "-"}</div>
+    </button>
+  );
+}
+
+function oddsGrid({
+  label,
+  options,
+}: {
+  label: string;
+  options: {
+    title: string;
+    value?: string;
+    active: boolean;
+    onClick: () => void;
+  }[];
+}) {
   return (
     <div
       style={{
@@ -74,18 +166,9 @@ function oddsGrid(label: string, odds: { h?: string; d?: string; a?: string } | 
         <span>{label}</span>
       </div>
       <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <div style={{ border: "1px solid #f1f1f1", borderRadius: 10, padding: "8px 10px" }}>
-          <div style={{ fontSize: 11, color: "#666" }}>主胜</div>
-          <div style={{ fontWeight: 750, marginTop: 4 }}>{odds?.h ?? "-"}</div>
-        </div>
-        <div style={{ border: "1px solid #f1f1f1", borderRadius: 10, padding: "8px 10px" }}>
-          <div style={{ fontSize: 11, color: "#666" }}>平</div>
-          <div style={{ fontWeight: 750, marginTop: 4 }}>{odds?.d ?? "-"}</div>
-        </div>
-        <div style={{ border: "1px solid #f1f1f1", borderRadius: 10, padding: "8px 10px" }}>
-          <div style={{ fontSize: 11, color: "#666" }}>客胜</div>
-          <div style={{ fontWeight: 750, marginTop: 4 }}>{odds?.a ?? "-"}</div>
-        </div>
+        {options.map((option) => (
+          <OddsOptionButton key={option.title} {...option} />
+        ))}
       </div>
     </div>
   );
@@ -99,8 +182,14 @@ export default function WanzhanMatchesPage() {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState<MatchDayGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Record<string, SelectedLeg>>({});
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const [multiplier, setMultiplier] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
 
   const summary = useMemo(() => summarizeDay(today), [today]);
+  const selectedLegs = useMemo(() => Object.values(selected), [selected]);
+  const ticketMode = view === "results" ? "results" : "schedule";
 
   async function loadSchedule() {
     setLoading(true);
@@ -176,6 +265,60 @@ export default function WanzhanMatchesPage() {
   }, [view]);
 
   const now = useMemo(() => new Date(), [tick]);
+
+  function toggleLeg(
+    match: MatchItem,
+    playType: PlayType,
+    selection: string,
+    spValue: unknown,
+    handicap?: number | null,
+  ) {
+    const sp = parseOdd(spValue);
+    if (sp == null) return;
+    const key = selectedKey(match.matchKey);
+    setSelected((current) => {
+      const existing = current[key];
+      if (existing?.playType === playType && existing.selection === selection) {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+
+      return {
+        ...current,
+        [key]: {
+          matchKey: match.matchKey,
+          matchId: match.matchId,
+          league: match.league,
+          homeTeam: match.homeTeam,
+          awayTeam: match.awayTeam,
+          kickoffTime: match.kickoffTime,
+          playType,
+          selection,
+          sp,
+          handicap,
+        },
+      };
+    });
+  }
+
+  async function submitTicket() {
+    if (selectedLegs.length === 0 || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createLedgerTicket({ mode: ticketMode, date: today, multiplier, legs: selectedLegs });
+      setSelected({});
+      setTicketOpen(false);
+      setMultiplier(1);
+      if (view === "schedule") await loadSchedule();
+      else await loadResultsWeek();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <WanzhanShell
@@ -300,6 +443,8 @@ export default function WanzhanMatchesPage() {
                 m.finalScore != null && String(m.finalScore).trim() !== ""
                   ? String(m.finalScore).trim()
                   : null;
+              const activeLeg = selected[selectedKey(m.matchKey)];
+              const hhadHandicap = parseHandicap(m.hhad?.goalLine);
 
               return (
               <div key={`${day.date}-${m.matchKey}`} style={cardStyle()}>
@@ -381,8 +526,52 @@ export default function WanzhanMatchesPage() {
                 ) : null}
 
                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {oddsGrid("胜平负 (HAD)", m.had)}
-                  {oddsGrid(`让球胜平负 (HHAD) ${m.hhad?.goalLine ?? ""}`.trim(), m.hhad)}
+                  {oddsGrid({
+                    label: "胜平负 (HAD)",
+                    options: [
+                      {
+                        title: "主胜",
+                        value: m.had?.h,
+                        active: activeLeg?.playType === "SPF" && activeLeg.selection === "胜",
+                        onClick: () => toggleLeg(m, "SPF", "胜", m.had?.h, null),
+                      },
+                      {
+                        title: "平",
+                        value: m.had?.d,
+                        active: activeLeg?.playType === "SPF" && activeLeg.selection === "平",
+                        onClick: () => toggleLeg(m, "SPF", "平", m.had?.d, null),
+                      },
+                      {
+                        title: "客胜",
+                        value: m.had?.a,
+                        active: activeLeg?.playType === "SPF" && activeLeg.selection === "负",
+                        onClick: () => toggleLeg(m, "SPF", "负", m.had?.a, null),
+                      },
+                    ],
+                  })}
+                  {oddsGrid({
+                    label: `让球胜平负 (HHAD) ${m.hhad?.goalLine ?? ""}`.trim(),
+                    options: [
+                      {
+                        title: "让胜",
+                        value: m.hhad?.h,
+                        active: activeLeg?.playType === "RQSPF" && activeLeg.selection === "让胜",
+                        onClick: () => toggleLeg(m, "RQSPF", "让胜", m.hhad?.h, hhadHandicap),
+                      },
+                      {
+                        title: "让平",
+                        value: m.hhad?.d,
+                        active: activeLeg?.playType === "RQSPF" && activeLeg.selection === "让平",
+                        onClick: () => toggleLeg(m, "RQSPF", "让平", m.hhad?.d, hhadHandicap),
+                      },
+                      {
+                        title: "让负",
+                        value: m.hhad?.a,
+                        active: activeLeg?.playType === "RQSPF" && activeLeg.selection === "让负",
+                        onClick: () => toggleLeg(m, "RQSPF", "让负", m.hhad?.a, hhadHandicap),
+                      },
+                    ],
+                  })}
                 </div>
               </div>
               );
@@ -406,7 +595,172 @@ export default function WanzhanMatchesPage() {
           </div>
         ) : null}
       </div>
+      {selectedLegs.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setTicketOpen(true)}
+          style={{
+            position: "fixed",
+            right: 18,
+            bottom: 18,
+            zIndex: 40,
+            border: "1px solid #111",
+            background: "#111",
+            color: "#fff",
+            borderRadius: 999,
+            padding: "12px 18px",
+            fontSize: 15,
+            fontWeight: 800,
+            boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
+          }}
+        >
+          {ticketMode === "results" ? "补记" : "出票"} · {selectedLegs.length}场
+        </button>
+      ) : null}
+
+      {ticketOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "rgba(0,0,0,0.28)",
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            padding: 14,
+          }}
+          onClick={() => {
+            if (!submitting) setTicketOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 560,
+              background: "#fff",
+              border: "1px solid #e6e6e6",
+              borderRadius: 16,
+              padding: 14,
+              boxShadow: "0 18px 45px rgba(0,0,0,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: 16, fontWeight: 800 }}>
+                {ticketMode === "results" ? "补记" : "出票"} · {selectedLegs.length}x1
+              </div>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setTicketOpen(false)}
+                style={{
+                  border: "1px solid #eee",
+                  background: "#fff",
+                  borderRadius: 999,
+                  width: 32,
+                  height: 32,
+                  fontSize: 18,
+                  lineHeight: "28px",
+                  color: "#333",
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8, maxHeight: "42vh", overflow: "auto" }}>
+              {selectedLegs.map((leg) => (
+                <div
+                  key={leg.matchKey}
+                  style={{
+                    border: "1px solid #eee",
+                    borderRadius: 12,
+                    padding: 10,
+                    background: "#fafafa",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#666",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <span>{leg.league}</span>
+                    <span>{formatSelectedKickoff(leg.kickoffTime)}</span>
+                  </div>
+                  <div style={{ marginTop: 5, fontWeight: 750 }}>
+                    {leg.homeTeam} <span style={{ color: "#999" }}>vs</span> {leg.awayTeam}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 13, color: "#333" }}>
+                    {leg.playType} · {leg.selection}
+                    {leg.handicap != null ? ` (${leg.handicap > 0 ? "+" : ""}${leg.handicap})` : ""} · {leg.sp.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>倍数</div>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={multiplier}
+                  onChange={(e) => setMultiplier(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  style={{
+                    marginTop: 6,
+                    width: "100%",
+                    border: "1px solid #ddd",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    fontSize: 16,
+                    fontWeight: 750,
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>过关</div>
+                <div style={{ marginTop: 8, fontSize: 16, fontWeight: 800 }}>{selectedLegs.length}x1</div>
+              </div>
+              <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>投注</div>
+                <div style={{ marginTop: 8, fontSize: 16, fontWeight: 800 }}>¥{computeStake(multiplier).toFixed(2)}</div>
+              </div>
+              <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>预计</div>
+                <div style={{ marginTop: 8, fontSize: 16, fontWeight: 800 }}>
+                  ¥{computeEstimatedPayout(selectedLegs.map((l) => l.sp), multiplier).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={submitting || selectedLegs.length === 0}
+              onClick={() => void submitTicket()}
+              style={{
+                marginTop: 12,
+                width: "100%",
+                border: "1px solid #111",
+                background: submitting ? "#555" : "#111",
+                color: "#fff",
+                borderRadius: 12,
+                padding: "12px 14px",
+                fontSize: 15,
+                fontWeight: 800,
+              }}
+            >
+              {submitting ? "提交中..." : ticketMode === "results" ? "确认补记" : "确认出票"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </WanzhanShell>
   );
 }
-
