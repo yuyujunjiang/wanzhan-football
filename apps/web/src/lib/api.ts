@@ -53,6 +53,52 @@ export type GetTicketResponse = {
   createdAt?: string;
 };
 
+export type LedgerStatus = "pending" | "settled";
+export type LedgerMode = "schedule" | "results";
+
+export type LedgerLegInput = {
+  matchKey: string;
+  matchId?: number | null;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffTime?: string | null;
+  playType: TicketPlayType;
+  selection: string;
+  sp: number;
+  handicap?: number | null;
+};
+
+export type LedgerLeg = LedgerLegInput & {
+  id: number;
+  resultSelection?: string | null;
+  isHit?: boolean | null;
+};
+
+export type LedgerTicket = {
+  id: string;
+  date: string;
+  status: LedgerStatus;
+  passType: string;
+  multiplier: number;
+  stake: number;
+  estimatedPayout: number;
+  actualPayout: number;
+  profit: number;
+  createdAt: number;
+  settledAt?: number | null;
+  legs: LedgerLeg[];
+};
+
+export type LedgerSummary = {
+  stake: number;
+  payout: number;
+  profit: number;
+  pendingCount: number;
+  settledCount: number;
+  ticketCount: number;
+};
+
 async function apiFetch<T>(
   path: string,
   init?: RequestInit & { json?: unknown },
@@ -101,4 +147,46 @@ export async function calculateTicket(ticket: Ticket): Promise<CalculateTicketRe
     method: "POST",
     json: ticket,
   });
+}
+
+export async function createLedgerTicket(input: {
+  mode: LedgerMode;
+  date: string;
+  multiplier: number;
+  legs: LedgerLegInput[];
+}): Promise<LedgerTicket> {
+  return await apiFetch<LedgerTicket>("/api/ledger/tickets", {
+    method: "POST",
+    json: input,
+  });
+}
+
+export async function settleLedgerTickets(): Promise<{ settledCount: number }> {
+  return await apiFetch<{ settledCount: number }>("/api/ledger/settle", {
+    method: "POST",
+  });
+}
+
+export async function getLedgerSummary(start: string, end: string): Promise<LedgerSummary> {
+  return await apiFetch<LedgerSummary>(
+    `/api/ledger/summary?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+  );
+}
+
+export async function listLedgerTickets(input: {
+  date?: string;
+  start?: string;
+  end?: string;
+  status?: "all" | "pending" | "settled";
+}): Promise<LedgerTicket[]> {
+  const params = new URLSearchParams();
+  if (input.date) params.set("date", input.date);
+  if (input.start) params.set("start", input.start);
+  if (input.end) params.set("end", input.end);
+  params.set("status", input.status ?? "all");
+  return await apiFetch<LedgerTicket[]>(`/api/ledger/tickets?${params.toString()}`);
+}
+
+export async function getLedgerTicket(id: string): Promise<LedgerTicket> {
+  return await apiFetch<LedgerTicket>(`/api/ledger/tickets/${encodeURIComponent(id)}`);
 }
