@@ -147,7 +147,6 @@ export default function WanzhanLedgerDayPage() {
 
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
           {list.map((t) => {
-            const payout = t.status === "settled" ? t.actualPayout : t.estimatedPayout;
             return (
               <a
                 key={t.id}
@@ -168,10 +167,16 @@ export default function WanzhanLedgerDayPage() {
                   </div>
                 </div>
                 <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
-                  投入 {t.stake.toFixed(2)} · {t.status === "settled" ? "回报" : "预计"} {payout.toFixed(2)} · 盈亏{" "}
-                  <span style={{ color: t.profit >= 0 ? "#135200" : "#b42318", fontWeight: 800 }}>
-                    {t.profit.toFixed(2)}
-                  </span>
+                  {t.status === "pending" ? (
+                    <>投入 {t.stake.toFixed(2)} · 预计回报 {t.estimatedPayout.toFixed(2)}</>
+                  ) : (
+                    <>
+                      投入 {t.stake.toFixed(2)} · 回报 {t.actualPayout.toFixed(2)} · 盈亏{" "}
+                      <span style={{ color: t.profit >= 0 ? "#135200" : "#b42318", fontWeight: 800 }}>
+                        {t.profit.toFixed(2)}
+                      </span>
+                    </>
+                  )}
                 </div>
               </a>
             );
