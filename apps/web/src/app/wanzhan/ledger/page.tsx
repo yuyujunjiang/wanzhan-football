@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { WanzhanShell } from "../../../components/wanzhan/WanzhanShell";
-import { listTicketsByDate, summarizeDay, summarizePeriod } from "../../../lib/wanzhanLedger";
+import { getLedgerSummary, listLedgerTickets, type LedgerSummary, type LedgerTicket } from "../../../lib/api";
 
 function formatLocalDateYYYYMMDD(d: Date) {
   const y = d.getFullYear();
@@ -49,9 +49,22 @@ function cardStyle() {
 
 type Mode = "day" | "week" | "month";
 
+const EMPTY_SUMMARY: LedgerSummary = {
+  stake: 0,
+  payout: 0,
+  profit: 0,
+  pendingCount: 0,
+  settledCount: 0,
+  ticketCount: 0,
+};
+
 export default function WanzhanLedgerPage() {
   const [mode, setMode] = useState<Mode>("day");
   const [date, setDate] = useState(() => formatLocalDateYYYYMMDD(new Date()));
+  const [summary, setSummary] = useState<LedgerSummary>(EMPTY_SUMMARY);
+  const [tickets, setTickets] = useState<LedgerTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const range = useMemo(() => {
     if (mode === "day") return { start: date, end: date };
@@ -65,12 +78,36 @@ export default function WanzhanLedgerPage() {
     return { start, end };
   }, [date, mode]);
 
-  const summary = useMemo(() => {
-    if (mode === "day") return summarizeDay(date);
-    return summarizePeriod(range.start, range.end);
-  }, [date, mode, range.end, range.start]);
+  useEffect(() => {
+    let cancelled = false;
 
-  const todayTickets = useMemo(() => listTicketsByDate(date, "all"), [date]);
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [nextSummary, nextTickets] = await Promise.all([
+          getLedgerSummary(range.start, range.end),
+          listLedgerTickets({ date, status: "all" }),
+        ]);
+        if (cancelled) return;
+        setSummary(nextSummary);
+        setTickets(nextTickets);
+      } catch (err) {
+        if (cancelled) return;
+        setSummary(EMPTY_SUMMARY);
+        setTickets([]);
+        setError(err instanceof Error ? err.message : "记账数据加载失败");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [date, range.end, range.start]);
 
   return (
     <WanzhanShell
@@ -107,9 +144,9 @@ export default function WanzhanLedgerPage() {
                   type="button"
                   onClick={() => setMode(m)}
                   style={{
-                    border: `1px solid ${active ? "#cfe0ff" : "#eee"}`,
-                    background: active ? "#f0f5ff" : "#fff",
-                    color: active ? "#1d39c4" : "#111",
+                    border: `1px solid ${active ? "#bbb" : "#eee"}`,
+                    background: active ? "#f5f5f5" : "#fff",
+                    color: "#111",
                     padding: "8px 10px",
                     borderRadius: 999,
                     fontSize: 13,
@@ -163,47 +200,52 @@ export default function WanzhanLedgerPage() {
         </div>
 
         <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+          {loading ? "加载中 · " : ""}
           待结 {summary.pendingCount} · 共 {summary.ticketCount} 张票
           {mode !== "day" ? ` · 区间 ${range.start} ~ ${range.end}` : ""}
         </div>
+        {error ? <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{error}</div> : null}
       </div>
 
       <div style={{ marginTop: 12, ...cardStyle() }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
           <div style={{ fontWeight: 800 }}>当天票</div>
-          <a href={`/wanzhan/ledger/day/${encodeURIComponent(date)}`} style={{ color: "#1d39c4", fontSize: 13 }}>
+          <a href={`/wanzhan/ledger/day/${encodeURIComponent(date)}`} style={{ color: "#444", fontSize: 13 }}>
             查看全部 →
           </a>
         </div>
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-          {todayTickets.slice(0, 3).map((t) => (
-            <a
-              key={t.id}
-              href={`/tickets/${encodeURIComponent(t.id)}/report`}
-              style={{
-                textDecoration: "none",
-                color: "#111",
-                border: "1px solid #eee",
-                borderRadius: 12,
-                padding: 10,
-                background: "#fff",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                <div style={{ fontWeight: 750 }}>票 #{t.id.slice(0, 6)}</div>
-                <div style={{ fontSize: 12, color: t.status === "pending" ? "#7a4f01" : "#135200" }}>
-                  {t.status === "pending" ? "待结" : "已结"}
+          {tickets.slice(0, 3).map((t) => {
+            const payout = t.status === "settled" ? t.actualPayout : t.estimatedPayout;
+            return (
+              <a
+                key={t.id}
+                href={`/wanzhan/ledger/tickets/${encodeURIComponent(t.id)}`}
+                style={{
+                  textDecoration: "none",
+                  color: "#111",
+                  border: "1px solid #eee",
+                  borderRadius: 12,
+                  padding: 10,
+                  background: "#fff",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontWeight: 750 }}>票 #{t.id.slice(0, 6)}</div>
+                  <div style={{ fontSize: 12, color: t.status === "pending" ? "#7a4f01" : "#135200" }}>
+                    {t.status === "pending" ? "待结" : "已结"}
+                  </div>
                 </div>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
-                投入 {t.stake.toFixed(2)} · 回报 {t.payout.toFixed(2)} · 盈亏{" "}
-                <span style={{ color: t.profit >= 0 ? "#135200" : "#b42318", fontWeight: 800 }}>
-                  {t.profit.toFixed(2)}
-                </span>
-              </div>
-            </a>
-          ))}
-          {todayTickets.length === 0 ? (
+                <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
+                  投入 {t.stake.toFixed(2)} · {t.status === "settled" ? "回报" : "预计"} {payout.toFixed(2)} · 盈亏{" "}
+                  <span style={{ color: t.profit >= 0 ? "#135200" : "#b42318", fontWeight: 800 }}>
+                    {t.profit.toFixed(2)}
+                  </span>
+                </div>
+              </a>
+            );
+          })}
+          {!loading && tickets.length === 0 ? (
             <div style={{ fontSize: 13, color: "#666" }}>
               今天还没有记录。你可以在“赛程赛果”页点右下角 <b>+</b> 添加今天买的彩票。
             </div>
@@ -213,4 +255,3 @@ export default function WanzhanLedgerPage() {
     </WanzhanShell>
   );
 }
-
