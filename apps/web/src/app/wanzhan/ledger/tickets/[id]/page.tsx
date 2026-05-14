@@ -42,6 +42,7 @@ export default function WanzhanLedgerTicketPage() {
     async function load() {
       setLoading(true);
       setError(null);
+      setTicket(null);
       try {
         const next = await getLedgerTicket(id);
         if (!cancelled) setTicket(next);
@@ -82,12 +83,16 @@ export default function WanzhanLedgerTicketPage() {
               <Info label="倍数" value={`${ticket.multiplier}`} />
               <Info label="投入" value={money(ticket.stake)} />
               <Info label="预计回报" value={money(ticket.estimatedPayout)} />
-              <Info label="实际回报" value={money(ticket.actualPayout)} />
-              <Info
-                label="盈亏"
-                value={money(ticket.profit)}
-                valueColor={ticket.profit >= 0 ? "#135200" : "#b42318"}
-              />
+              {ticket.status === "settled" ? (
+                <>
+                  <Info label="实际回报" value={money(ticket.actualPayout)} />
+                  <Info
+                    label="盈亏"
+                    value={money(ticket.profit)}
+                    valueColor={ticket.profit >= 0 ? "#135200" : "#b42318"}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
 

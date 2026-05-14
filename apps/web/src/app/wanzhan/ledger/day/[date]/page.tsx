@@ -23,12 +23,19 @@ const EMPTY_SUMMARY: LedgerSummary = {
   ticketCount: 0,
 };
 
+const FILTERS = ["all", "pending", "settled"] as const;
+type Filter = (typeof FILTERS)[number];
+
+function parseFilter(value: string | null): Filter {
+  return FILTERS.includes(value as Filter) ? (value as Filter) : "all";
+}
+
 export default function WanzhanLedgerDayPage() {
   const params = useParams<{ date: string }>();
   const date = params.date;
   const search = useSearchParams();
-  const initial = (search.get("filter") as "all" | "pending" | "settled" | null) ?? "all";
-  const [filter, setFilter] = useState<"all" | "pending" | "settled">(initial);
+  const initial = parseFilter(search.get("filter"));
+  const [filter, setFilter] = useState<Filter>(initial);
   const [summary, setSummary] = useState<LedgerSummary>(EMPTY_SUMMARY);
   const [list, setList] = useState<LedgerTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,7 +127,7 @@ export default function WanzhanLedgerDayPage() {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
           <div style={{ fontWeight: 900 }}>票列表</div>
           <div style={{ display: "flex", gap: 8 }}>
-            {(["all", "pending", "settled"] as const).map((f) => {
+            {FILTERS.map((f) => {
               const active = filter === f;
               const label = f === "all" ? "全部" : f === "pending" ? "待结" : "已结";
               return (
