@@ -3,10 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { WanzhanShell } from "../../../components/wanzhan/WanzhanShell";
 import { StatStrip } from "../../../components/wanzhan/StatStrip";
-import { API_BASE_URL, createLedgerTicket } from "../../../lib/api";
+import { API_BASE_URL, createLedgerTicket, getLedgerSummary, type LedgerSummary } from "../../../lib/api";
 import { computeEstimatedPayout, computeStake } from "../../../lib/ledgerMath";
 import { deriveMatchPhase, formatKickoffClock, phaseLabel, type MatchPhase } from "../../../lib/matchDisplay";
-import { summarizeDay } from "../../../lib/wanzhanLedger";
 
 type MatchItem = {
   date: string;
@@ -55,6 +54,7 @@ type ViewMode = "schedule" | "results";
 type PlayType = "SPF" | "RQSPF";
 
 type SelectedLeg = {
+  date: string;
   matchKey: string;
   matchId?: number | null;
   league: string;
@@ -92,6 +92,15 @@ function formatSelectedKickoff(kickoffTime?: string | null) {
 function selectedKey(matchKey: string) {
   return matchKey;
 }
+
+const EMPTY_LEDGER_SUMMARY: LedgerSummary = {
+  stake: 0,
+  payout: 0,
+  profit: 0,
+  pendingCount: 0,
+  settledCount: 0,
+  ticketCount: 0,
+};
 
 function cardStyle() {
   return {
@@ -186,10 +195,21 @@ export default function WanzhanMatchesPage() {
   const [ticketOpen, setTicketOpen] = useState(false);
   const [multiplier, setMultiplier] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [summary, setSummary] = useState<LedgerSummary>(EMPTY_LEDGER_SUMMARY);
 
-  const summary = useMemo(() => summarizeDay(today), [today]);
   const selectedLegs = useMemo(() => Object.values(selected), [selected]);
   const ticketMode = view === "results" ? "results" : "schedule";
+  const ticketTitleId = "wanzhan-ticket-confirm-title";
+
+  async function loadLedgerSummary() {
+    try {
+      const next = await getLedgerSummary(today, today);
+      setSummary(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSummary(EMPTY_LEDGER_SUMMARY);
+    }
+  }
 
   async function loadSchedule() {
     setLoading(true);
@@ -246,10 +266,17 @@ export default function WanzhanMatchesPage() {
   }
 
   useEffect(() => {
+    setSelected({});
+    setTicketOpen(false);
     if (view === "schedule") void loadSchedule();
     else void loadResultsWeek();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
+
+  useEffect(() => {
+    void loadLedgerSummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today]);
 
   useEffect(() => {
     if (view !== "schedule") return;
@@ -268,6 +295,7 @@ export default function WanzhanMatchesPage() {
 
   function toggleLeg(
     match: MatchItem,
+    matchDate: string,
     playType: PlayType,
     selection: string,
     spValue: unknown,
@@ -287,6 +315,7 @@ export default function WanzhanMatchesPage() {
       return {
         ...current,
         [key]: {
+          date: matchDate,
           matchKey: match.matchKey,
           matchId: match.matchId,
           league: match.league,
@@ -304,15 +333,23 @@ export default function WanzhanMatchesPage() {
 
   async function submitTicket() {
     if (selectedLegs.length === 0 || submitting) return;
+    const ticketDate = selectedLegs[0]?.date ?? today;
+    if (selectedLegs.some((leg) => leg.date !== ticketDate)) {
+      setError("不能混合不同日期的比赛。");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
-      await createLedgerTicket({ mode: ticketMode, date: today, multiplier, legs: selectedLegs });
+      const legs = selectedLegs.map(({ date: _date, ...leg }) => leg);
+      await createLedgerTicket({ mode: ticketMode, date: ticketDate, multiplier, legs });
       setSelected({});
       setTicketOpen(false);
       setMultiplier(1);
       if (view === "schedule") await loadSchedule();
       else await loadResultsWeek();
+      await loadLedgerSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -382,7 +419,11 @@ export default function WanzhanMatchesPage() {
             </div>
             <button
               type="button"
-              onClick={() => (view === "schedule" ? void loadSchedule() : void loadResultsWeek())}
+              onClick={() => {
+                if (view === "schedule") void loadSchedule();
+                else void loadResultsWeek();
+                void loadLedgerSummary();
+              }}
               style={{
                 border: "1px solid #ddd",
                 background: "#fff",
@@ -533,19 +574,19 @@ export default function WanzhanMatchesPage() {
                         title: "主胜",
                         value: m.had?.h,
                         active: activeLeg?.playType === "SPF" && activeLeg.selection === "胜",
-                        onClick: () => toggleLeg(m, "SPF", "胜", m.had?.h, null),
+                        onClick: () => toggleLeg(m, day.date, "SPF", "胜", m.had?.h, null),
                       },
                       {
                         title: "平",
                         value: m.had?.d,
                         active: activeLeg?.playType === "SPF" && activeLeg.selection === "平",
-                        onClick: () => toggleLeg(m, "SPF", "平", m.had?.d, null),
+                        onClick: () => toggleLeg(m, day.date, "SPF", "平", m.had?.d, null),
                       },
                       {
                         title: "客胜",
                         value: m.had?.a,
                         active: activeLeg?.playType === "SPF" && activeLeg.selection === "负",
-                        onClick: () => toggleLeg(m, "SPF", "负", m.had?.a, null),
+                        onClick: () => toggleLeg(m, day.date, "SPF", "负", m.had?.a, null),
                       },
                     ],
                   })}
@@ -556,19 +597,19 @@ export default function WanzhanMatchesPage() {
                         title: "让胜",
                         value: m.hhad?.h,
                         active: activeLeg?.playType === "RQSPF" && activeLeg.selection === "让胜",
-                        onClick: () => toggleLeg(m, "RQSPF", "让胜", m.hhad?.h, hhadHandicap),
+                        onClick: () => toggleLeg(m, day.date, "RQSPF", "让胜", m.hhad?.h, hhadHandicap),
                       },
                       {
                         title: "让平",
                         value: m.hhad?.d,
                         active: activeLeg?.playType === "RQSPF" && activeLeg.selection === "让平",
-                        onClick: () => toggleLeg(m, "RQSPF", "让平", m.hhad?.d, hhadHandicap),
+                        onClick: () => toggleLeg(m, day.date, "RQSPF", "让平", m.hhad?.d, hhadHandicap),
                       },
                       {
                         title: "让负",
                         value: m.hhad?.a,
                         active: activeLeg?.playType === "RQSPF" && activeLeg.selection === "让负",
-                        onClick: () => toggleLeg(m, "RQSPF", "让负", m.hhad?.a, hhadHandicap),
+                        onClick: () => toggleLeg(m, day.date, "RQSPF", "让负", m.hhad?.a, hhadHandicap),
                       },
                     ],
                   })}
@@ -635,6 +676,9 @@ export default function WanzhanMatchesPage() {
           }}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={ticketTitleId}
             style={{
               width: "100%",
               maxWidth: 560,
@@ -647,11 +691,12 @@ export default function WanzhanMatchesPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-              <div style={{ fontSize: 16, fontWeight: 800 }}>
+              <div id={ticketTitleId} style={{ fontSize: 16, fontWeight: 800 }}>
                 {ticketMode === "results" ? "补记" : "出票"} · {selectedLegs.length}x1
               </div>
               <button
                 type="button"
+                aria-label="关闭"
                 disabled={submitting}
                 onClick={() => setTicketOpen(false)}
                 style={{
