@@ -74,12 +74,52 @@ def test_create_results_ticket_settles_immediately_with_mock_results(tmp_path):
     assert body["profit"] == 40.0
 
 
+def test_create_ticket_rejects_duplicate_match_keys_without_persisting(tmp_path):
+    client = _client(tmp_path)
+    payload = _payload("schedule")
+    payload["legs"][1]["matchKey"] = payload["legs"][0]["matchKey"]
+
+    resp = client.post("/api/ledger/tickets", json=payload)
+    tickets_resp = client.get("/api/ledger/tickets?date=2026-05-14&status=all")
+
+    assert resp.status_code == 400
+    assert "duplicate matchKey" in resp.json()["detail"]
+    assert tickets_resp.status_code == 200
+    assert tickets_resp.json() == []
+
+
+def test_create_results_ticket_provider_failure_does_not_persist_pending_ticket(
+    tmp_path,
+    monkeypatch,
+):
+    client = _client(tmp_path)
+    ledger = importlib.import_module("app.routes.ledger")
+
+    class FailingResultsProvider:
+        def get_results_by_match_keys(self, match_keys):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(ledger, "get_results_provider", lambda: FailingResultsProvider())
+
+    resp = client.post("/api/ledger/tickets", json=_payload("results"))
+    tickets_resp = client.get("/api/ledger/tickets?date=2026-05-14&status=all")
+
+    assert resp.status_code == 503
+    assert "results provider failed" in resp.json()["detail"]
+    assert tickets_resp.status_code == 200
+    assert tickets_resp.json() == []
+
+
 def test_summary_and_ticket_list_return_created_tickets(tmp_path):
     client = _client(tmp_path)
-    client.post("/api/ledger/tickets", json=_payload("schedule"))
+    payload = _payload("schedule")
+    payload["date"] = "2026-05-16"
+    payload["legs"][0]["kickoffTime"] = "2026-05-16T19:00:00"
+    payload["legs"][1]["kickoffTime"] = "2026-05-16T20:00:00"
+    client.post("/api/ledger/tickets", json=payload)
 
-    summary = client.get("/api/ledger/summary?start=2026-05-14&end=2026-05-14").json()
-    tickets = client.get("/api/ledger/tickets?date=2026-05-14&status=all").json()
+    summary = client.get("/api/ledger/summary?start=2026-05-16&end=2026-05-16").json()
+    tickets = client.get("/api/ledger/tickets?date=2026-05-16&status=all").json()
 
     assert summary["stake"] == 20.0
     assert summary["pendingCount"] == 1

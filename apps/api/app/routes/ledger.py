@@ -30,13 +30,23 @@ def _active_store() -> LedgerStore:
     return store
 
 
-def _results_for_ticket(ticket: LedgerTicketOut) -> dict[str, dict[str, Any]]:
+def _results_for_match_keys(match_keys: list[str]) -> dict[str, dict[str, Any]]:
     provider = get_results_provider()
-    return provider.get_results_by_match_keys([leg.matchKey for leg in ticket.legs])
+    return provider.get_results_by_match_keys(match_keys)
 
 
-def _settle_created_ticket(ticket: LedgerTicketOut) -> LedgerTicketOut:
-    settlement = settle_ticket_if_ready(ticket, _results_for_ticket(ticket))
+def _results_for_ticket(ticket: LedgerTicketOut) -> dict[str, dict[str, Any]]:
+    return _results_for_match_keys([leg.matchKey for leg in ticket.legs])
+
+
+def _settle_created_ticket(
+    ticket: LedgerTicketOut,
+    results_by_match_key: dict[str, dict[str, Any]] | None = None,
+) -> LedgerTicketOut:
+    settlement = settle_ticket_if_ready(
+        ticket,
+        results_by_match_key if results_by_match_key is not None else _results_for_ticket(ticket),
+    )
     if settlement is None:
         return ticket
 
@@ -102,8 +112,31 @@ def settle_pending_tickets() -> int:
     return settled_count
 
 
+def _validate_unique_match_keys(payload: LedgerTicketCreate) -> None:
+    seen: set[str] = set()
+    for leg in payload.legs:
+        if leg.matchKey in seen:
+            raise HTTPException(
+                status_code=400,
+                detail=f"duplicate matchKey is not allowed: {leg.matchKey}",
+            )
+        seen.add(leg.matchKey)
+
+
 @router.post("/tickets")
 def create_ticket(payload: LedgerTicketCreate) -> dict[str, Any]:
+    _validate_unique_match_keys(payload)
+
+    results_by_match_key: dict[str, dict[str, Any]] | None = None
+    if payload.mode == "results":
+        try:
+            results_by_match_key = _results_for_match_keys([leg.matchKey for leg in payload.legs])
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="results provider failed; ticket was not created",
+            ) from exc
+
     pass_type = f"{len(payload.legs)}x1"
     stake = compute_stake(multiplier=payload.multiplier)
     estimated_payout = compute_estimated_payout(
@@ -123,7 +156,7 @@ def create_ticket(payload: LedgerTicketCreate) -> dict[str, Any]:
     )
 
     if payload.mode == "results":
-        ticket = _settle_created_ticket(ticket)
+        ticket = _settle_created_ticket(ticket, results_by_match_key)
     return ticket.model_dump()
 
 
