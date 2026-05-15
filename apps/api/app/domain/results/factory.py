@@ -1,19 +1,25 @@
 from __future__ import annotations
 
-from app.settings import settings
+import importlib
 
 from .mock_provider import MockResultsProvider
 from .provider import ResultsProvider
 
 
 _singleton: ResultsProvider | None = None
+_cached_provider_key: str | None = None
 
 
 def get_results_provider() -> ResultsProvider:
-    global _singleton
-    if _singleton is not None:
-        return _singleton
+    """Return the configured results provider, rebuilding if settings change (e.g. tests reload settings)."""
+    global _singleton, _cached_provider_key
+    settings = importlib.import_module("app.settings").settings
     provider = (settings.results_provider or "mock").lower()
+    if _singleton is not None and _cached_provider_key == provider:
+        return _singleton
+
+    _singleton = None
+    _cached_provider_key = provider
     if provider == "mock":
         _singleton = MockResultsProvider()
         return _singleton
@@ -31,5 +37,5 @@ def get_results_provider() -> ResultsProvider:
 
         _singleton = FootballDataOrgProvider(token=settings.football_data_org_token)
         return _singleton
-    raise ValueError(f"Unknown results provider: {settings.results_provider!r}")
+    raise ValueError(f"Unknown results provider: {provider!r}")
 

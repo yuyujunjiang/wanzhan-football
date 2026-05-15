@@ -29,6 +29,17 @@ class LedgerTicketCreate(BaseModel):
     legs: Annotated[list[LedgerLegInput], Field(min_length=1)]
 
 
+class LedgerTicketUpdate(BaseModel):
+    date: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    multiplier: Annotated[int, Field(ge=1, le=9999)]
+    legs: Annotated[list[LedgerLegInput], Field(min_length=1)]
+
+
+class LedgerTicketSettledUpdate(BaseModel):
+    stake: Annotated[float, Field(ge=0)]
+    actualPayout: Annotated[float, Field(ge=0)]
+
+
 class LedgerLegOut(LedgerLegInput):
     id: int
     resultSelection: str | None = None

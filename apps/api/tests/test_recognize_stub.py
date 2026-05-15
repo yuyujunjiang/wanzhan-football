@@ -28,8 +28,20 @@ def test_recognize_ticket_stub_returns_draft() -> None:
         "multiplier": 2,
         "passTypes": ["2x1"],
         "legs": [
-            {"matchKey": "2026-05-08 EPL A vs B", "selection": "胜", "handicap": None, "sp": 1.85},
-            {"matchKey": "2026-05-08 EPL C vs D", "selection": "平", "handicap": None, "sp": 2.1},
+            {
+                "matchKey": "2026-05-08 EPL A vs B",
+                "playType": "SPF",
+                "selection": "胜",
+                "handicap": None,
+                "sp": 1.85,
+            },
+            {
+                "matchKey": "2026-05-08 EPL C vs D",
+                "playType": "SPF",
+                "selection": "平",
+                "handicap": None,
+                "sp": 2.1,
+            },
         ],
         "warnings": [],
         "sourceImages": ["ticket.jpg"],

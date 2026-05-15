@@ -5,10 +5,18 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 
+from app.auth.deps import get_current_user
+from app.domain.auth.models import UserOut
 from app.domain.ledger.calculations import compute_estimated_payout, compute_stake
-from app.domain.ledger.models import LedgerTicketCreate, LedgerTicketOut
+from app.domain.ledger.models import (
+    LedgerTicketCreate,
+    LedgerTicketOut,
+    LedgerTicketSettledUpdate,
+    LedgerTicketUpdate,
+)
 from app.domain.ledger.settlement import settle_ticket_if_ready
 from app.domain.results.factory import get_results_provider
 from app.storage.ledger_store import LedgerStore
@@ -41,6 +49,7 @@ def _results_for_ticket(ticket: LedgerTicketOut) -> dict[str, dict[str, Any]]:
 
 def _settle_created_ticket(
     ticket: LedgerTicketOut,
+    user_id: str,
     results_by_match_key: dict[str, dict[str, Any]] | None = None,
 ) -> LedgerTicketOut:
     settlement = settle_ticket_if_ready(
@@ -51,6 +60,7 @@ def _settle_created_ticket(
         return ticket
 
     settled = _active_store().settle_ticket(
+        user_id=user_id,
         ticket_id=ticket.id,
         actual_payout=settlement.actualPayout,
         profit=settlement.profit,
@@ -84,17 +94,34 @@ def _ticket_is_past_result_window(ticket: LedgerTicketOut) -> bool:
     return dt.datetime.now(_TZ) >= latest_kickoff + dt.timedelta(hours=4)
 
 
-def _settle_pending_tickets_best_effort() -> None:
+def _pending_tickets_for_settlement(user_id: str | None) -> list[tuple[str, LedgerTicketOut]]:
+    ledger_store = _active_store()
+    if user_id is not None:
+        return [(user_id, ticket) for ticket in ledger_store.pending_tickets(user_id)]
+
+    conn = ledger_store._get_conn()
+    rows = conn.execute(
+        "SELECT id, user_id FROM ledger_tickets WHERE status = 'pending' ORDER BY created_at DESC"
+    ).fetchall()
+    pairs: list[tuple[str, LedgerTicketOut]] = []
+    for row in rows:
+        ticket = ledger_store.get_ticket(row["id"], row["user_id"])
+        if ticket is not None:
+            pairs.append((row["user_id"], ticket))
+    return pairs
+
+
+def _settle_pending_tickets_best_effort(user_id: str) -> None:
     try:
-        settle_pending_tickets()
+        settle_pending_tickets(user_id)
     except Exception:
         logger.exception("failed to settle pending ledger tickets during read")
 
 
-def settle_pending_tickets() -> int:
+def settle_pending_tickets(user_id: str | None = None) -> int:
     settled_count = 0
     ledger_store = _active_store()
-    for ticket in ledger_store.pending_tickets():
+    for owner_id, ticket in _pending_tickets_for_settlement(user_id):
         if not _ticket_is_past_result_window(ticket):
             continue
 
@@ -103,6 +130,7 @@ def settle_pending_tickets() -> int:
             continue
 
         ledger_store.settle_ticket(
+            user_id=owner_id,
             ticket_id=ticket.id,
             actual_payout=settlement.actualPayout,
             profit=settlement.profit,
@@ -112,19 +140,27 @@ def settle_pending_tickets() -> int:
     return settled_count
 
 
-def _validate_unique_match_keys(payload: LedgerTicketCreate) -> None:
+def _validate_unique_match_keys_legs(legs: list[Any]) -> None:
     seen: set[str] = set()
-    for leg in payload.legs:
-        if leg.matchKey in seen:
+    for leg in legs:
+        match_key = leg.matchKey if hasattr(leg, "matchKey") else leg["matchKey"]
+        if match_key in seen:
             raise HTTPException(
                 status_code=400,
-                detail=f"duplicate matchKey is not allowed: {leg.matchKey}",
+                detail=f"duplicate matchKey is not allowed: {match_key}",
             )
-        seen.add(leg.matchKey)
+        seen.add(match_key)
+
+
+def _validate_unique_match_keys(payload: LedgerTicketCreate) -> None:
+    _validate_unique_match_keys_legs(payload.legs)
 
 
 @router.post("/tickets")
-def create_ticket(payload: LedgerTicketCreate) -> dict[str, Any]:
+def create_ticket(
+    payload: LedgerTicketCreate,
+    user: UserOut = Depends(get_current_user),
+) -> dict[str, Any]:
     _validate_unique_match_keys(payload)
 
     results_by_match_key: dict[str, dict[str, Any]] | None = None
@@ -144,6 +180,7 @@ def create_ticket(payload: LedgerTicketCreate) -> dict[str, Any]:
         multiplier=payload.multiplier,
     )
     ticket = _active_store().create_ticket(
+        user_id=user.id,
         date=payload.date,
         status="pending",
         pass_type=pass_type,
@@ -156,23 +193,32 @@ def create_ticket(payload: LedgerTicketCreate) -> dict[str, Any]:
     )
 
     if payload.mode == "results":
-        ticket = _settle_created_ticket(ticket, results_by_match_key)
+        ticket = _settle_created_ticket(ticket, user.id, results_by_match_key)
     return ticket.model_dump()
 
 
 @router.post("/settle")
-def settle_tickets() -> dict[str, int]:
-    return {"settledCount": settle_pending_tickets()}
+def settle_tickets(user: UserOut = Depends(get_current_user)) -> dict[str, int]:
+    return {"settledCount": settle_pending_tickets(user.id)}
 
 
 @router.get("/summary")
-def summary(start: dt.date, end: dt.date) -> dict[str, float | int]:
-    _settle_pending_tickets_best_effort()
-    return _active_store().summary(start=start.isoformat(), end=end.isoformat())
+def summary(
+    start: dt.date,
+    end: dt.date,
+    user: UserOut = Depends(get_current_user),
+) -> dict[str, float | int]:
+    _settle_pending_tickets_best_effort(user.id)
+    return _active_store().summary(
+        user_id=user.id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
 
 
 @router.get("/tickets")
 def list_tickets(
+    user: UserOut = Depends(get_current_user),
     date: dt.date | None = None,
     start: dt.date | None = None,
     end: dt.date | None = None,
@@ -181,8 +227,9 @@ def list_tickets(
     if status not in {"all", "pending", "settled"}:
         raise HTTPException(status_code=400, detail="invalid status")
 
-    _settle_pending_tickets_best_effort()
+    _settle_pending_tickets_best_effort(user.id)
     tickets = _active_store().list_tickets(
+        user_id=user.id,
         date=date.isoformat() if date is not None else None,
         start=start.isoformat() if start is not None else None,
         end=end.isoformat() if end is not None else None,
@@ -192,9 +239,79 @@ def list_tickets(
 
 
 @router.get("/tickets/{ticket_id}")
-def get_ticket(ticket_id: str) -> dict[str, Any]:
-    _settle_pending_tickets_best_effort()
-    ticket = _active_store().get_ticket(ticket_id)
+def get_ticket(
+    ticket_id: str,
+    user: UserOut = Depends(get_current_user),
+) -> dict[str, Any]:
+    _settle_pending_tickets_best_effort(user.id)
+    ticket = _active_store().get_ticket(ticket_id, user.id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="not found")
     return ticket.model_dump()
+
+
+@router.patch("/tickets/{ticket_id}")
+async def patch_ticket(
+    ticket_id: str,
+    request: Request,
+    user: UserOut = Depends(get_current_user),
+    reSettle: bool = False,
+) -> dict[str, Any]:
+    ledger_store = _active_store()
+    ticket = ledger_store.get_ticket(ticket_id, user.id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+
+    if ticket.status == "pending":
+        update = LedgerTicketUpdate.model_validate(body)
+        _validate_unique_match_keys_legs(update.legs)
+        updated = ledger_store.update_ticket_pending(
+            user_id=user.id,
+            ticket_id=ticket_id,
+            date=update.date,
+            multiplier=update.multiplier,
+            legs=[leg.model_dump() for leg in update.legs],
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="not found")
+        if reSettle:
+            try:
+                results_by_match_key = _results_for_match_keys(
+                    [leg.matchKey for leg in updated.legs]
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="results provider failed; ticket was not re-settled",
+                ) from exc
+            updated = _settle_created_ticket(updated, user.id, results_by_match_key)
+        return updated.model_dump()
+
+    if "legs" in body:
+        raise HTTPException(status_code=400, detail="settled tickets cannot change legs")
+
+    settled_update = LedgerTicketSettledUpdate.model_validate(body)
+    updated = ledger_store.update_ticket_settled(
+        user_id=user.id,
+        ticket_id=ticket_id,
+        stake=settled_update.stake,
+        actual_payout=settled_update.actualPayout,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return updated.model_dump()
+
+
+@router.delete("/tickets/{ticket_id}", status_code=204)
+def delete_ticket(
+    ticket_id: str,
+    user: UserOut = Depends(get_current_user),
+) -> Response:
+    deleted = _active_store().delete_ticket(user_id=user.id, ticket_id=ticket_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="not found")
+    return Response(status_code=204)
