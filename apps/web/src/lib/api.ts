@@ -99,24 +99,53 @@ export type LedgerSummary = {
   ticketCount: number;
 };
 
+export type AuthUser = { id: string; username: string };
+
+type ApiFetchInit = RequestInit & {
+  json?: unknown;
+  /** When true, a 401 does not redirect to login (used by the login page). */
+  skipAuthRedirect?: boolean;
+};
+
+function redirectToLoginIfNeeded(path: string, status: number, skipAuthRedirect?: boolean) {
+  if (typeof window === "undefined") return;
+  if (status !== 401) return;
+  if (skipAuthRedirect) return;
+  if (path.startsWith("/api/auth/login")) return;
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = `/wanzhan/login?next=${next}`;
+}
+
 async function apiFetch<T>(
   path: string,
-  init?: RequestInit & { json?: unknown },
+  init?: ApiFetchInit,
 ): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.json !== undefined) headers.set("Content-Type", "application/json");
 
+  const { json, skipAuthRedirect, ...rest } = init ?? {};
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
+    ...rest,
+    credentials: "include",
     headers,
-    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+    body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
+
+  redirectToLoginIfNeeded(path, res.status, skipAuthRedirect);
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`API ${res.status} ${path}${text ? `: ${text}` : ""}`);
   }
-  return (await res.json()) as T;
+
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  const raw = await res.text();
+  if (!raw) {
+    return undefined as T;
+  }
+  return JSON.parse(raw) as T;
 }
 
 export async function recognizeTicket(files: File[]): Promise<RecognizeTicketResponse> {
@@ -128,6 +157,7 @@ export async function recognizeTicket(files: File[]): Promise<RecognizeTicketRes
     method: "POST",
     headers,
     body: form,
+    skipAuthRedirect: true,
   });
 }
 
@@ -189,4 +219,40 @@ export async function listLedgerTickets(input: {
 
 export async function getLedgerTicket(id: string): Promise<LedgerTicket> {
   return await apiFetch<LedgerTicket>(`/api/ledger/tickets/${encodeURIComponent(id)}`);
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  return await apiFetch<AuthUser>("/api/auth/login", {
+    method: "POST",
+    json: { username, password },
+    skipAuthRedirect: true,
+  });
+}
+
+export async function logout(): Promise<void> {
+  await apiFetch<void>("/api/auth/logout", { method: "POST" });
+}
+
+export async function getMe(): Promise<AuthUser> {
+  return await apiFetch<AuthUser>("/api/auth/me");
+}
+
+export async function updateLedgerTicket(
+  id: string,
+  body:
+    | { date: string; multiplier: number; legs: LedgerLegInput[] }
+    | { stake: number; actualPayout: number },
+  options?: { reSettle?: boolean },
+): Promise<LedgerTicket> {
+  const q = options?.reSettle ? "?reSettle=true" : "";
+  return await apiFetch<LedgerTicket>(`/api/ledger/tickets/${encodeURIComponent(id)}${q}`, {
+    method: "PATCH",
+    json: body,
+  });
+}
+
+export async function deleteLedgerTicket(id: string): Promise<void> {
+  await apiFetch<void>(`/api/ledger/tickets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }

@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { WanzhanShell } from "../../../../../components/wanzhan/WanzhanShell";
-import { getLedgerSummary, listLedgerTickets, type LedgerSummary, type LedgerTicket } from "../../../../../lib/api";
+import {
+  deleteLedgerTicket,
+  getLedgerSummary,
+  listLedgerTickets,
+  type LedgerSummary,
+  type LedgerTicket,
+} from "../../../../../lib/api";
 
 function cardStyle() {
   return {
@@ -103,6 +109,21 @@ export default function WanzhanLedgerDayPage() {
     };
   }, [date, filter]);
 
+  async function onDeleteTicket(t: LedgerTicket) {
+    if (!window.confirm("确定删除这张票？")) return;
+    try {
+      await deleteLedgerTicket(t.id);
+      const [nextSummary, nextList] = await Promise.all([
+        getLedgerSummary(date, date),
+        listLedgerTickets({ date, status: filter }),
+      ]);
+      setSummary(nextSummary);
+      setList(nextList);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
+  }
+
   return (
     <WanzhanShell
       title={`当天票 · ${date}`}
@@ -186,39 +207,78 @@ export default function WanzhanLedgerDayPage() {
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
           {list.map((t) => {
             return (
-              <a
+              <div
                 key={t.id}
-                href={`/wanzhan/ledger/tickets/${encodeURIComponent(t.id)}`}
                 style={{
-                  textDecoration: "none",
-                  color: "#111",
                   border: "1px solid #eee",
                   borderRadius: 12,
                   padding: 10,
                   background: "#fff",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0, fontWeight: 750 }}>
-                    <TicketTitle ticket={t} />
+                <a
+                  href={`/wanzhan/ledger/tickets/${encodeURIComponent(t.id)}`}
+                  style={{ textDecoration: "none", color: "#111", display: "block" }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0, fontWeight: 750 }}>
+                      <TicketTitle ticket={t} />
+                    </div>
+                    <div style={{ fontSize: 12, color: t.status === "pending" ? "#7a4f01" : "#135200" }}>
+                      {t.status === "pending" ? "待结" : "已结"}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: t.status === "pending" ? "#7a4f01" : "#135200" }}>
-                    {t.status === "pending" ? "待结" : "已结"}
+                  <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
+                    {t.status === "pending" ? (
+                      <>投入 {t.stake.toFixed(2)} · 预计回报 {t.estimatedPayout.toFixed(2)}</>
+                    ) : (
+                      <>
+                        投入 {t.stake.toFixed(2)} · 回报 {t.actualPayout.toFixed(2)} · 盈亏{" "}
+                        <span style={{ color: t.profit >= 0 ? "#135200" : "#b42318", fontWeight: 800 }}>
+                          {t.profit.toFixed(2)}
+                        </span>
+                      </>
+                    )}
                   </div>
+                </a>
+                <div
+                  style={{
+                    marginTop: 10,
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                    borderTop: "1px solid #f0f0f0",
+                    paddingTop: 10,
+                  }}
+                >
+                  <a
+                    href={`/wanzhan/ledger/tickets/${encodeURIComponent(t.id)}/edit`}
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: "#1d39c4",
+                      textDecoration: "none",
+                    }}
+                  >
+                    编辑
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void onDeleteTicket(t)}
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: "#b42318",
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                    }}
+                  >
+                    删除
+                  </button>
                 </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
-                  {t.status === "pending" ? (
-                    <>投入 {t.stake.toFixed(2)} · 预计回报 {t.estimatedPayout.toFixed(2)}</>
-                  ) : (
-                    <>
-                      投入 {t.stake.toFixed(2)} · 回报 {t.actualPayout.toFixed(2)} · 盈亏{" "}
-                      <span style={{ color: t.profit >= 0 ? "#135200" : "#b42318", fontWeight: 800 }}>
-                        {t.profit.toFixed(2)}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </a>
+              </div>
             );
           })}
           {!loading && list.length === 0 ? <div style={{ fontSize: 13, color: "#666" }}>没有符合条件的票。</div> : null}

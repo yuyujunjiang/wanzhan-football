@@ -1,9 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { WanzhanShell } from "../../../../../components/wanzhan/WanzhanShell";
-import { getLedgerTicket, type LedgerTicket } from "../../../../../lib/api";
+import { deleteLedgerTicket, getLedgerTicket, type LedgerTicket } from "../../../../../lib/api";
 
 function cardStyle() {
   return {
@@ -30,6 +31,7 @@ function legStatusLabel(isHit?: boolean | null) {
 }
 
 export default function WanzhanLedgerTicketPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [ticket, setTicket] = useState<LedgerTicket | null>(null);
@@ -39,7 +41,7 @@ export default function WanzhanLedgerTicketPage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function run() {
       setLoading(true);
       setError(null);
       setTicket(null);
@@ -56,15 +58,67 @@ export default function WanzhanLedgerTicketPage() {
       }
     }
 
-    void load();
+    void run();
 
     return () => {
       cancelled = true;
     };
   }, [id]);
 
+  async function onDelete() {
+    if (!ticket) return;
+    if (!window.confirm("确定删除这张票？不可恢复。")) return;
+    try {
+      await deleteLedgerTicket(ticket.id);
+      router.replace(`/wanzhan/ledger/day/${encodeURIComponent(ticket.date)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "删除失败");
+    }
+  }
+
   return (
-    <WanzhanShell title="票据详情" back>
+    <WanzhanShell
+      title="票据详情"
+      back
+      right={
+        ticket ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <a
+              href={`/wanzhan/ledger/tickets/${encodeURIComponent(ticket.id)}/edit`}
+              style={{
+                border: "1px solid #111",
+                background: "#fff",
+                color: "#111",
+                padding: "8px 10px",
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 750,
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              编辑
+            </a>
+            <button
+              type="button"
+              onClick={() => void onDelete()}
+              style={{
+                border: "1px solid #b42318",
+                background: "#fff",
+                color: "#b42318",
+                padding: "8px 10px",
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 750,
+                whiteSpace: "nowrap",
+              }}
+            >
+              删除
+            </button>
+          </div>
+        ) : null
+      }
+    >
       {loading ? <div style={{ ...cardStyle(), color: "#666", fontSize: 13 }}>加载中...</div> : null}
       {error ? <div style={{ ...cardStyle(), color: "#b42318", fontSize: 13 }}>{error}</div> : null}
 
