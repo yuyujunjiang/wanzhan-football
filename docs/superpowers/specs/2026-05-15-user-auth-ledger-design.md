@@ -12,6 +12,7 @@
 - **未登录不能进入万站**（`/wanzhan/*`）；登录后默认进入 **赛程赛果**（`/wanzhan/matches`）。
 - **记账本**（`/api/ledger/*`）按 `user_id` 隔离；其他 API（OCR 票据、赛程）本版仍匿名。
 - 不开放自助注册；通过 **CLI** 手工创建用户；初始密码在命令行传入。
+- **记账本票列表支持删除与修改**（见第 15 节）。
 
 ---
 
@@ -35,6 +36,7 @@
 | 登录后落地页 | `/wanzhan/matches` |
 | 保护范围 | 整个 `/wanzhan/*`（`/wanzhan/login` 除外） |
 | 历史账本 | 不迁移；`ledger_tickets` 增加 `user_id` 后仅新数据 |
+| 记账本删改 | 列表与详情可删；待结票可改场次/倍数；已结票可改记账数字（见 §15，**待你确认 B/C**） |
 
 ---
 
@@ -140,8 +142,16 @@ flowchart LR
 
 所有 `/api/ledger/*` 路由依赖 `get_current_user()`：
 
-- 创建、列表、汇总、单票查询、结算 — 仅当前 `user_id`。
+- 创建、列表、汇总、单票查询、结算、**修改、删除** — 仅当前 `user_id`。
 - 未登录：**401**。
+- 操作他人票或不存在：**404**（不暴露是否存在）。
+
+**新增：**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| PATCH | `/api/ledger/tickets/{ticket_id}` | 修改票（规则见 §15） |
+| DELETE | `/api/ledger/tickets/{ticket_id}` | 删除票及关联 `ledger_legs` |
 
 OCR `/api/tickets/*`、赛程 `/api/matches/*`：**不强制登录**（本版）。
 
@@ -172,6 +182,7 @@ uv run python -m app.tools.create_user --username alice --password '初始密码
 
 - **`/wanzhan/login`**：用户名 + 密码；提交 `POST /api/auth/login`；成功 `router.replace("/wanzhan/matches")`。
 - **`/wanzhan/me`**：展示 `username`；「退出」调用 `POST /api/auth/logout` 后跳转 login。
+- **记账本删改 UI**（§15）：当天票列表、票详情提供「编辑 / 删除」；删除前二次确认。
 
 ### 8.2 `api.ts`
 
@@ -240,6 +251,10 @@ uv run python -m app.tools.create_user --username alice --password '初始密码
 | 未登录 `GET /api/ledger/tickets` | 401 |
 | 登出 | Cookie 清除，后续 me 401 |
 | 过期 session | me 401（可测短 TTL 或 mock 时间） |
+| `DELETE` 自己的票 | 204；再 GET → 404 |
+| `PATCH` 待结票改倍数 | stake / estimatedPayout 重算 |
+| `PATCH` 已结票改回报 | profit 与汇总更新 |
+| 用户 B 删用户 A 的票 | 404 |
 
 ---
 
@@ -257,8 +272,69 @@ uv run python -m app.tools.create_user --username alice --password '初始密码
 2. Auth 路由 + `get_current_user` + 测试
 3. CLI `create_user`
 4. `LedgerStore` 加 `user_id` + ledger 路由鉴权 + 测试
-5. 前端 login、`credentials`、middleware、me 页退出
-6. 文档：首次部署建第一个用户命令
+5. **Ledger `PATCH` / `DELETE` + store 方法 + API 测试**
+6. 前端 login、`credentials`、middleware、me 页退出
+7. **记账本列表/详情删改 UI + `updateLedgerTicket` / `deleteLedgerTicket`**
+8. 文档：首次部署建第一个用户命令
+
+---
+
+## 15. 记账本票的删除与修改
+
+### 15.1 删除
+
+- **`DELETE /api/ledger/tickets/{id}`**：硬删除；先删 `ledger_legs`，再删 `ledger_tickets`；须匹配 `user_id`。
+- 响应：**204** 无 body。
+- 前端：列表项与详情页均提供「删除」；`window.confirm` 或等价二次确认；成功后列表刷新或返回当天列表。
+
+### 15.2 修改（分状态）
+
+**待结票（`status = pending`）— 结构编辑**
+
+- Body：`LedgerTicketUpdate`（与创建类似，不含 `mode` 亦可，见下）
+  - `date`（`YYYY-MM-DD`）
+  - `multiplier`（≥1）
+  - `legs`（整单替换，至少 1 条；`matchKey` 不可重复）
+- 服务端：
+  - 用 `compute_stake` / `compute_estimated_payout` **重算** `stake`、`estimatedPayout`
+  - 更新 `pass_type`（`{n}x1`）
+  - **整单替换 legs**（删旧 legs 再插入）
+  - 保持 `status=pending`；`actual_payout=0`，`profit=0`，`settled_at=NULL`；清除 leg 上 `result_selection` / `is_hit`
+- 可选 query：`?reSettle=true` — 保存后调用与创建相同的「按赛果尝试结算」逻辑（与 `POST /tickets` + `mode=results` 一致）；默认 **false**（只改单不自动结）。
+
+**已结票（`status = settled`）— 记账修正（推荐默认 B，见 §15.3）**
+
+- Body：`LedgerTicketSettledUpdate`
+  - `stake`（≥0）
+  - `actualPayout`（≥0）
+- 服务端：`profit = round2(actualPayout - stake)`；**不**改 legs、不自动改 `status`。
+- 用于记错投入/回报后的手工修正。
+
+### 15.3 已结票是否允许改场次？（待确认）
+
+| 选项 | 行为 |
+|------|------|
+| **B（推荐）** | 已结票 **只能** 改 `stake` / `actualPayout`（及删除）；改场次须删票重记 |
+| **C** | 已结票也允许 **整单 legs 替换**，保存后 **强制回到 pending** 并清空结算字段，由用户再触发结算 |
+
+spec 实现前需产品确认一项；未确认时按 **B** 实现。
+
+### 15.4 前端交互
+
+| 位置 | 能力 |
+|------|------|
+| `/wanzhan/ledger/day/[date]` 票列表 | 每条票：**编辑**、**删除**（按钮，避免与整卡 `href` 冲突：编辑/删除 `stopPropagation` 或改为卡片内链接区） |
+| `/wanzhan/ledger/tickets/[id]` 详情 | **编辑**、**删除** |
+| `/wanzhan/ledger/tickets/[id]/edit`（新建） | 待结：表单编辑 date / multiplier / legs（可复用创建票的字段组件）；已结：仅 stake / actualPayout |
+| 记账本日视图首页列表（若有票预览） | 与当天列表一致，至少支持进入详情后删改 |
+
+保存成功：toast 或内联提示 + 返回列表/详情并刷新；删除成功：返回 `ledger/day/[date]`。
+
+### 15.5 Store / 模型补充
+
+- `LedgerTicketUpdate`、`LedgerTicketSettledUpdate`（Pydantic）
+- `LedgerStore.update_ticket_pending(...)`、`update_ticket_settled(...)`、`delete_ticket(user_id, ticket_id)`
+- 所有 SQL 带 `WHERE id = ? AND user_id = ?`
 
 ---
 
@@ -270,3 +346,5 @@ uv run python -m app.tools.create_user --username alice --password '初始密码
 | 仅 ledger 鉴权 | 用户明确记账本关联用户；赛程/OCR 后续可扩展 |
 | 默认 `/wanzhan/matches` | 产品：先进赛程再看账本 |
 | 不迁移旧数据 | 降低迁移风险，与空账本策略一致 |
+| 删改硬删除 | 记账本无审计要求，实现简单；汇总随 DELETE 自然更新 |
+| 已结票默认仅改数字（B） | 避免误改 legs 破坏结算一致性；需改场次则删后重记 |
