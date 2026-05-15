@@ -232,14 +232,26 @@ export default function WanzhanMatchesPage() {
     }
   }
 
-  /** 近 7 天赛果：不含今天；窗口为「今天-7」…「昨天」（与后端按天 JSON 缓存一致） */
-  async function loadResultsWeek() {
+  async function fetchCompletedMatches(date: string): Promise<MatchItem[]> {
+    const res = await fetch(`${API_BASE_URL}/api/matches?date=${encodeURIComponent(date)}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`API ${res.status} /api/matches${text ? `: ${text}` : ""}`);
+    }
+    const body = (await res.json()) as unknown;
+    if (!Array.isArray(body)) throw new Error("matches response is not a list");
+    return (body as MatchItem[]).filter(
+      (m) => m.finalScore != null && String(m.finalScore).trim() !== "",
+    );
+  }
+
+  async function loadResultsHistory() {
     setLoading(true);
     setError(null);
     try {
       const start = addCalendarDays(today, -7);
       const res = await fetch(
-        `${API_BASE_URL}/api/matches/range?start=${encodeURIComponent(start)}&days=7`,
+        `${API_BASE_URL}/api/matches/range?start=${encodeURIComponent(start)}&days=8`,
       );
       if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -249,7 +261,7 @@ export default function WanzhanMatchesPage() {
       if (!Array.isArray(body)) throw new Error("matches response is not a list");
       const groups = body as MatchDayGroup[];
       const filtered = groups
-        .filter((g) => g.date < today)
+        .filter((g) => g.date <= today)
         .map((g) => ({
           ...g,
           matches: g.matches.filter((m) => m.finalScore != null && String(m.finalScore).trim() !== ""),
@@ -265,11 +277,26 @@ export default function WanzhanMatchesPage() {
     }
   }
 
+  async function refreshTodayResults() {
+    try {
+      const matches = await fetchCompletedMatches(today);
+      setDays((current) => {
+        const rest = current.filter((g) => g.date !== today);
+        if (matches.length === 0) return rest;
+        return [{ date: today, matchCount: matches.length, matches }, ...rest].sort((a, b) =>
+          a.date < b.date ? 1 : -1,
+        );
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   useEffect(() => {
     setSelected({});
     setTicketOpen(false);
     if (view === "schedule") void loadSchedule();
-    else void loadResultsWeek();
+    else void loadResultsHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
@@ -281,6 +308,13 @@ export default function WanzhanMatchesPage() {
   useEffect(() => {
     if (view !== "schedule") return;
     const id = window.setInterval(() => void loadSchedule(), 60_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, today]);
+
+  useEffect(() => {
+    if (view !== "results") return;
+    const id = window.setInterval(() => void refreshTodayResults(), 300_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, today]);
@@ -348,7 +382,7 @@ export default function WanzhanMatchesPage() {
       setTicketOpen(false);
       setMultiplier(1);
       if (view === "schedule") await loadSchedule();
-      else await loadResultsWeek();
+                else await loadResultsHistory();
       await loadLedgerSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -415,13 +449,13 @@ export default function WanzhanMatchesPage() {
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <div style={{ color: "#666", fontSize: 13 }}>
-              {view === "schedule" ? `今日赛程 · ${today}` : "近 7 天已完赛（不含今日）"}
+              {view === "schedule" ? `今日赛程 · ${today}` : "近 7 天赛果"}
             </div>
             <button
               type="button"
               onClick={() => {
                 if (view === "schedule") void loadSchedule();
-                else void loadResultsWeek();
+                else void loadResultsHistory();
                 void loadLedgerSummary();
               }}
               style={{
@@ -568,7 +602,7 @@ export default function WanzhanMatchesPage() {
 
                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                   {oddsGrid({
-                    label: "胜平负 (HAD)",
+                    label: "胜平负",
                     options: [
                       {
                         title: "主胜",
@@ -591,7 +625,7 @@ export default function WanzhanMatchesPage() {
                     ],
                   })}
                   {oddsGrid({
-                    label: `让球胜平负 (HHAD) ${m.hhad?.goalLine ?? ""}`.trim(),
+                    label: "让球胜平负",
                     options: [
                       {
                         title: "让胜",
@@ -631,7 +665,7 @@ export default function WanzhanMatchesPage() {
           <div style={cardStyle()}>
             <div style={{ fontWeight: 650, marginBottom: 6 }}>{view === "schedule" ? "暂无赛程" : "暂无赛果"}</div>
             <div style={{ color: "#666", fontSize: 13 }}>
-              {view === "schedule" ? "今日没有返回任何比赛。" : "近 7 天内没有已完赛记录，或赛果尚未同步。"}
+              {view === "schedule" ? "今日没有返回任何比赛。" : "近 7 天暂无已完赛记录，或赛果尚未同步。"}
             </div>
           </div>
         ) : null}

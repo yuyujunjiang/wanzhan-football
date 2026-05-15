@@ -47,6 +47,10 @@ function cardStyle() {
   } as const;
 }
 
+function ticketTitle(ticket: LedgerTicket) {
+  return ticket.legs.map((leg) => `${leg.homeTeam} vs ${leg.awayTeam} ${leg.selection}`);
+}
+
 type Mode = "day" | "week" | "month";
 
 const EMPTY_SUMMARY: LedgerSummary = {
@@ -216,6 +220,7 @@ export default function WanzhanLedgerPage() {
         </div>
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
           {tickets.slice(0, 3).map((t) => {
+            const titleLines = ticketTitle(t);
             return (
               <a
                 key={t.id}
@@ -230,7 +235,11 @@ export default function WanzhanLedgerPage() {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ fontWeight: 750 }}>票 #{t.id.slice(0, 6)}</div>
+                  <div style={{ fontWeight: 750, lineHeight: 1.5 }}>
+                    {titleLines.map((line) => (
+                      <div key={line}>{line}</div>
+                    ))}
+                  </div>
                   <div style={{ fontSize: 12, color: t.status === "pending" ? "#7a4f01" : "#135200" }}>
                     {t.status === "pending" ? "待结" : "已结"}
                   </div>

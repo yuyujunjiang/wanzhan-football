@@ -8,7 +8,6 @@ import httpx
 
 from .provider import ResultsProvider
 
-
 _SCORE_RE = re.compile(r"^\s*(\d+)\s*:\s*(\d+)\s*$")
 
 
@@ -59,6 +58,57 @@ def _normalize_match_key(s: str) -> str:
     return re.sub(r"\s+", "", s).strip().lower()
 
 
+def _result_payload_from_sporttery_match(m: dict[str, Any]) -> dict[str, Any]:
+    spf = _outcome_spf_from_win_flag(m.get("winFlag"))
+    score = _parse_score(m.get("sectionsNo999"))
+    handicap = _parse_handicap(m.get("goalLine"))
+    rqspf = None
+    if score:
+        rqspf = _outcome_rqspf_from_score(score[0], score[1], handicap)
+
+    payload: dict[str, Any] = {
+        "finalScore": m.get("sectionsNo999") or None,
+        "halfScore": m.get("sectionsNo1") or None,
+        "goalLine": m.get("goalLine") or None,
+        "matchResultStatus": m.get("matchResultStatus"),
+        "poolStatus": m.get("poolStatus"),
+    }
+    if spf:
+        payload["outcomeSPF"] = spf
+    if rqspf:
+        payload["outcomeRQSPF"] = rqspf
+    return payload
+
+
+def _match_from_result(date: str, m: dict[str, Any]) -> dict[str, Any]:
+    league = m.get("leagueNameAbbr") or m.get("leagueName") or ""
+    home = m.get("homeTeam") or m.get("allHomeTeam") or ""
+    away = m.get("awayTeam") or m.get("allAwayTeam") or ""
+    match_key = f"{date} {league} {home} vs {away}".strip()
+    odds = {
+        "h": m.get("h"),
+        "d": m.get("d"),
+        "a": m.get("a"),
+    }
+    goal_line = m.get("goalLine") or None
+    return {
+        "date": date,
+        "league": league,
+        "homeTeam": home,
+        "awayTeam": away,
+        "kickoffTime": m.get("matchDate") or date,
+        "matchKey": match_key,
+        "matchId": m.get("matchId"),
+        "matchStatus": m.get("matchResultStatus"),
+        "had": odds,
+        # The results endpoint exposes one h/d/a odds set plus goalLine. Keep
+        # HHAD selectable in results mode when odds are present; settlement
+        # still uses outcomeRQSPF derived from the score and goalLine.
+        "hhad": {**odds, "goalLine": goal_line},
+        **_result_payload_from_sporttery_match(m),
+    }
+
+
 class SportteryResultsProvider(ResultsProvider):
     """
     Provider backed by sporttery webapi endpoints used by m.sporttery.cn calculator/results pages.
@@ -86,6 +136,7 @@ class SportteryResultsProvider(ResultsProvider):
 
         # Best-effort: also fetch results for the same date so the matches page can show赛果.
         results_by_match_id: dict[int, dict[str, Any]] = {}
+        result_matches: list[dict[str, Any]] = []
         try:
             rurl = "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry"
             rresp = self._client.get(
@@ -106,25 +157,9 @@ class SportteryResultsProvider(ResultsProvider):
             rdata = rresp.json()
             for m in rdata.get("value", {}).get("matchResult") or []:
                 mid = m.get("matchId")
+                result_matches.append(_match_from_result(date, m))
                 if isinstance(mid, int):
-                    spf = _outcome_spf_from_win_flag(m.get("winFlag"))
-                    score = _parse_score(m.get("sectionsNo999"))
-                    handicap = _parse_handicap(m.get("goalLine"))
-                    rqspf = None
-                    if score:
-                        rqspf = _outcome_rqspf_from_score(score[0], score[1], handicap)
-                    payload: dict[str, Any] = {
-                        "finalScore": m.get("sectionsNo999") or None,
-                        "halfScore": m.get("sectionsNo1") or None,
-                        "goalLine": m.get("goalLine") or None,
-                        "matchResultStatus": m.get("matchResultStatus"),
-                        "poolStatus": m.get("poolStatus"),
-                    }
-                    if spf:
-                        payload["outcomeSPF"] = spf
-                    if rqspf:
-                        payload["outcomeRQSPF"] = rqspf
-                    results_by_match_id[mid] = payload
+                    results_by_match_id[mid] = _result_payload_from_sporttery_match(m)
         except Exception:
             # No hard failure: keep list_matches usable even if results endpoint is flaky/blocked.
             results_by_match_id = {}
@@ -154,6 +189,8 @@ class SportteryResultsProvider(ResultsProvider):
                         **(result_payload or {}),
                     }
                 )
+        if not out and result_matches:
+            return result_matches
         return out
 
     def get_results_by_match_keys(self, match_keys: list[str]) -> dict[str, dict[str, Any]]:
@@ -200,13 +237,10 @@ class SportteryResultsProvider(ResultsProvider):
                 m = idx.get(_normalize_match_key(k))
                 if not m:
                     continue
-                spf = _outcome_spf_from_win_flag(m.get("winFlag"))
-                score = _parse_score(m.get("sectionsNo999"))
-                handicap = _parse_handicap(m.get("goalLine"))
-                rqspf = None
-                if score:
-                    rqspf = _outcome_rqspf_from_score(score[0], score[1], handicap)
+                result_payload = _result_payload_from_sporttery_match(m)
                 payload: dict[str, Any] = {}
+                spf = result_payload.get("outcomeSPF")
+                rqspf = result_payload.get("outcomeRQSPF")
                 if spf:
                     payload["outcomeSPF"] = spf
                 if rqspf:
@@ -214,4 +248,3 @@ class SportteryResultsProvider(ResultsProvider):
                 if payload:
                     out[k] = payload
         return out
-
