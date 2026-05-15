@@ -96,12 +96,15 @@ def migrate(conn: sqlite3.Connection) -> None:
         """
     )
 
-    # Existing DBs without user_id: clear ledger per spec, then add column.
+    # Existing DBs without user_id: add column, preserve legacy data.
     ledger_cols = {row[1] for row in conn.execute("PRAGMA table_info(ledger_tickets)")}
     if "user_id" not in ledger_cols:
-        conn.execute("DELETE FROM ledger_legs")
-        conn.execute("DELETE FROM ledger_tickets")
-        conn.execute("ALTER TABLE ledger_tickets ADD COLUMN user_id TEXT NOT NULL")
+        # Add column with default value for existing rows (preserve data).
+        conn.execute(
+            "ALTER TABLE ledger_tickets ADD COLUMN user_id TEXT NOT NULL DEFAULT 'legacy'"
+        )
+        # Backfill all existing rows with 'legacy' user.
+        conn.execute("UPDATE ledger_tickets SET user_id = 'legacy' WHERE user_id IS NULL")
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_tickets_date ON ledger_tickets(date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_tickets_status ON ledger_tickets(status)")
