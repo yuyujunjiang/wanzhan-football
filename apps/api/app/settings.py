@@ -17,5 +17,13 @@ class Settings(BaseSettings):
     matches_scheduler_interval_seconds: int = 300
     matches_scheduler_full_refresh_seconds: int = 1800
 
+    # Comma-separated browser origins for CORS (required when frontend calls API on another port/host).
+    # Example: https://yujj.club,http://localhost:3000
+    cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,http://0.0.0.0:3000"
+    )
+    # Set FC_COOKIE_SECURE=1 behind HTTPS reverse proxy so session cookies are Secure.
+    cookie_secure: bool = False
+
 
 settings = Settings()

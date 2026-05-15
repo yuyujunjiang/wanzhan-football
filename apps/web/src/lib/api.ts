@@ -112,6 +112,10 @@ function redirectToLoginIfNeeded(path: string, status: number, skipAuthRedirect?
   if (status !== 401) return;
   if (skipAuthRedirect) return;
   if (path.startsWith("/api/auth/login")) return;
+  // Best-effort clear server session (HttpOnly cookie cannot be cleared from JS).
+  void fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(
+    () => undefined,
+  );
   const next = encodeURIComponent(window.location.pathname + window.location.search);
   window.location.href = `/wanzhan/login?next=${next}`;
 }

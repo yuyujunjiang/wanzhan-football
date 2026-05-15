@@ -12,18 +12,26 @@ from app.auth.deps import (
 )
 from app.domain.auth.models import LoginRequest, UserOut
 from app.domain.auth.passwords import verify_password
+from app.settings import settings
 from app.storage.db import now_epoch
 from app.storage.session_store import SessionStore
 from app.storage.user_store import UserStore
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+
+def _cookie_secure(request: Request) -> bool:
+    if settings.cookie_secure:
+        return True
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return forwarded == "https"
+
 _session_store = SessionStore()
 _user_store = UserStore()
 
 
 @router.post("/login")
-def login(body: LoginRequest) -> UserOut:
+def login(body: LoginRequest, request: Request) -> UserOut:
     user = _user_store.get_by_username(body.username)
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -40,6 +48,7 @@ def login(body: LoginRequest) -> UserOut:
         max_age=SESSION_MAX_AGE,
         samesite="lax",
         path="/",
+        secure=_cookie_secure(request),
     )
     return response
 
@@ -51,7 +60,7 @@ def logout(request: Request) -> Response:
         _session_store.delete(session_id)
 
     response = Response(status_code=204)
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=_cookie_secure(request))
     return response
 
 

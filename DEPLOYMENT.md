@@ -59,8 +59,12 @@ FC_RESULTS_PROVIDER=sporttery
 FC_MATCHES_SCHEDULER_ENABLED=true
 FC_MATCHES_SCHEDULER_INTERVAL_SECONDS=300
 FC_MATCHES_SCHEDULER_FULL_REFRESH_SECONDS=1800
+FC_COOKIE_SECURE=1
+FC_CORS_ORIGINS=https://yujj.club,https://www.yujj.club
 EOF
 ```
+
+（将 `yujj.club` 换成你的域名。前端构建时 **不要** 设置 `NEXT_PUBLIC_API_BASE_URL`，让浏览器走同源 `/api/...`，由 Nginx 反代到 FastAPI。）
 
 然后重启后端：
 
@@ -235,6 +239,22 @@ sudo journalctl -u football-calculator-api -n 200 --no-pager
 - Python 版本低于 3.11
 - PaddleOCR 依赖安装失败或内存不足
 - `.env` 配置错误
+
+### 记账本 API 401 `Not authenticated`
+
+常见原因：
+
+1. **未登录或会话过期**：打开 `/wanzhan/login` 重新登录。
+2. **本地开发把 API 指到 `:8000`**：若设置了 `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`，Cookie 会落在 8000 端口，页面在 3000 端口时记账本请求带不上会话。**请删掉该环境变量**，只用 Next 的 `/api` 反代（见 `apps/web/next.config.mjs`）。
+3. **服务器代码未更新**：需包含 `feature/football-calculator-mvp` 上的 auth + ledger 鉴权；更新后 `systemctl restart football-calculator-api` 并重新 `npm run build` 前端。
+4. **尚未建用户**：见上文「万站登录与首个账号」执行 `create_user`。
+
+自检（已登录后，在浏览器同域执行）：
+
+```bash
+curl -sS -b "fc_session=你的cookie值" "https://你的域名/api/auth/me"
+curl -sS -b "fc_session=你的cookie值" "https://你的域名/api/ledger/summary?start=2026-05-15&end=2026-05-15"
+```
 
 ### 前端启动失败
 
