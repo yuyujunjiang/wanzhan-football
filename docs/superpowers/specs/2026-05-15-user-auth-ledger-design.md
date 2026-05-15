@@ -36,7 +36,7 @@
 | 登录后落地页 | `/wanzhan/matches` |
 | 保护范围 | 整个 `/wanzhan/*`（`/wanzhan/login` 除外） |
 | 历史账本 | 不迁移；`ledger_tickets` 增加 `user_id` 后仅新数据 |
-| 记账本删改 | 列表与详情可删；待结票可改场次/倍数；已结票可改记账数字（见 §15，**待你确认 B/C**） |
+| 记账本删改 | 列表与详情可删；待结票可改场次/倍数；已结票仅可改投入/回报（**B**） |
 
 ---
 
@@ -302,22 +302,18 @@ uv run python -m app.tools.create_user --username alice --password '初始密码
   - 保持 `status=pending`；`actual_payout=0`，`profit=0`，`settled_at=NULL`；清除 leg 上 `result_selection` / `is_hit`
 - 可选 query：`?reSettle=true` — 保存后调用与创建相同的「按赛果尝试结算」逻辑（与 `POST /tickets` + `mode=results` 一致）；默认 **false**（只改单不自动结）。
 
-**已结票（`status = settled`）— 记账修正（推荐默认 B，见 §15.3）**
+**已结票（`status = settled`）— 记账修正（已确认 B）**
 
 - Body：`LedgerTicketSettledUpdate`
   - `stake`（≥0）
   - `actualPayout`（≥0）
 - 服务端：`profit = round2(actualPayout - stake)`；**不**改 legs、不自动改 `status`。
-- 用于记错投入/回报后的手工修正。
+- 已结票 **不可** 改场次/legs；若记错场次须 **删除后重新记票**。
+- 若客户端对 settled 票提交 `LedgerTicketUpdate`（含 legs）：**400** + 明确错误信息。
 
-### 15.3 已结票是否允许改场次？（待确认）
+### 15.3 已结票改场次策略（已定稿）
 
-| 选项 | 行为 |
-|------|------|
-| **B（推荐）** | 已结票 **只能** 改 `stake` / `actualPayout`（及删除）；改场次须删票重记 |
-| **C** | 已结票也允许 **整单 legs 替换**，保存后 **强制回到 pending** 并清空结算字段，由用户再触发结算 |
-
-spec 实现前需产品确认一项；未确认时按 **B** 实现。
+**B：** 已结票只能改记账数字或删除；结构变更通过删票重记完成。
 
 ### 15.4 前端交互
 
