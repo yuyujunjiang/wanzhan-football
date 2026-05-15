@@ -518,6 +518,7 @@ export default function WanzhanMatchesPage() {
                 m.finalScore != null && String(m.finalScore).trim() !== ""
                   ? String(m.finalScore).trim()
                   : null;
+              const kickoffClock = formatKickoffClock(m);
               const activeLeg = selected[selectedKey(m.matchKey)];
               const hhadHandicap = parseHandicap(m.hhad?.goalLine);
 
@@ -548,9 +549,11 @@ export default function WanzhanMatchesPage() {
                   </div>
                 </div>
 
-                <div style={{ marginTop: 6, fontSize: 13, color: "#666" }}>
-                  开赛时间：{formatKickoffClock(m)}
-                </div>
+                {kickoffClock !== "--:--" ? (
+                  <div style={{ marginTop: 6, fontSize: 13, color: "#666" }}>
+                    开赛时间：{kickoffClock}
+                  </div>
+                ) : null}
 
                 <div style={{ marginTop: 8, fontSize: 16, fontWeight: 800 }}>
                   {m.homeTeam} <span style={{ color: "#999" }}>vs</span> {m.awayTeam}

@@ -14,8 +14,35 @@ function cardStyle() {
   } as const;
 }
 
-function ticketTitle(ticket: LedgerTicket) {
-  return ticket.legs.map((leg) => `${leg.homeTeam} vs ${leg.awayTeam} ${leg.selection}`);
+function selectionColor(selection: string) {
+  if (selection === "胜" || selection === "让胜") return "#cf1322";
+  if (selection === "负" || selection === "让负") return "#237804";
+  return "#111";
+}
+
+function TicketTitle({ ticket }: { ticket: LedgerTicket }) {
+  return (
+    <div style={{ display: "grid", gap: 2, lineHeight: 1.45 }}>
+      {ticket.legs.map((leg) => (
+        <div
+          key={leg.id}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) 44px",
+            columnGap: 10,
+            alignItems: "baseline",
+          }}
+        >
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {leg.homeTeam} vs {leg.awayTeam}
+          </span>
+          <span style={{ color: selectionColor(leg.selection), fontWeight: 900, textAlign: "right" }}>
+            {leg.selection}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const EMPTY_SUMMARY: LedgerSummary = {
@@ -158,7 +185,6 @@ export default function WanzhanLedgerDayPage() {
 
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
           {list.map((t) => {
-            const titleLines = ticketTitle(t);
             return (
               <a
                 key={t.id}
@@ -173,10 +199,8 @@ export default function WanzhanLedgerDayPage() {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ fontWeight: 750, lineHeight: 1.5 }}>
-                    {titleLines.map((line) => (
-                      <div key={line}>{line}</div>
-                    ))}
+                  <div style={{ flex: 1, minWidth: 0, fontWeight: 750 }}>
+                    <TicketTitle ticket={t} />
                   </div>
                   <div style={{ fontSize: 12, color: t.status === "pending" ? "#7a4f01" : "#135200" }}>
                     {t.status === "pending" ? "待结" : "已结"}

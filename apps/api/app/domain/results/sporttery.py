@@ -90,21 +90,21 @@ def _match_from_result(date: str, m: dict[str, Any]) -> dict[str, Any]:
         "d": m.get("d"),
         "a": m.get("a"),
     }
-    goal_line = m.get("goalLine") or None
     return {
         "date": date,
         "league": league,
         "homeTeam": home,
         "awayTeam": away,
-        "kickoffTime": m.get("matchDate") or date,
+        # The result endpoint only exposes the match date, not kickoff time.
+        # Keep this blank so the UI does not render a misleading 08:00.
+        "kickoffTime": "",
         "matchKey": match_key,
         "matchId": m.get("matchId"),
         "matchStatus": m.get("matchResultStatus"),
         "had": odds,
-        # The results endpoint exposes one h/d/a odds set plus goalLine. Keep
-        # HHAD selectable in results mode when odds are present; settlement
-        # still uses outcomeRQSPF derived from the score and goalLine.
-        "hhad": {**odds, "goalLine": goal_line},
+        # The result endpoint only exposes one h/d/a odds set. Do not mirror it
+        # into HHAD, otherwise handicap odds look valid when they are unknown.
+        "hhad": None,
         **_result_payload_from_sporttery_match(m),
     }
 

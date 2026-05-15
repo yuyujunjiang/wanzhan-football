@@ -50,7 +50,9 @@ def test_sporttery_uses_result_matches_when_calculator_has_no_history():
 
     assert len(matches) == 1
     assert matches[0]["homeTeam"] == "西雅图"
+    assert matches[0]["kickoffTime"] == ""
     assert matches[0]["finalScore"] == "3:2"
     assert matches[0]["outcomeSPF"] == "胜"
     assert matches[0]["outcomeRQSPF"] == "让平"
     assert matches[0]["had"]["h"] == "1.67"
+    assert matches[0]["hhad"] is None
