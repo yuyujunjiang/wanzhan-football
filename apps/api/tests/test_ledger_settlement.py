@@ -1,5 +1,5 @@
+from app.domain.ledger.models import LedgerLegOut, LedgerTicketOut
 from app.domain.ledger.settlement import settle_ticket_if_ready
-from app.domain.ledger.models import LedgerTicketOut, LedgerLegOut
 
 
 def _ticket(legs, estimated=63.0, stake=20.0):
