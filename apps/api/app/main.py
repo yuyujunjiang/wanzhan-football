@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.settings import settings
 from app.domain.results.scheduler import start_matches_scheduler, stop_matches_scheduler
+from app.routes.ai import router as ai_router
 from app.routes.auth import router as auth_router
 from app.routes.ledger import router as ledger_router
 from app.routes.matches import router as matches_router
@@ -49,6 +50,7 @@ app.include_router(tickets_router)
 app.include_router(matches_router)
 app.include_router(ledger_router)
 app.include_router(auth_router)
+app.include_router(ai_router)
 
 
 @app.get("/health")

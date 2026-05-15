@@ -25,5 +25,20 @@ class Settings(BaseSettings):
     # Set FC_COOKIE_SECURE=1 behind HTTPS reverse proxy so session cookies are Secure.
     cookie_secure: bool = False
 
+    fastgpt_api_base: str = "http://175.27.228.129:4000/api"
+    fastgpt_api_key: str | None = None
+    fastgpt_chat_path: str = "/v1/chat/completions"
+    fastgpt_timeout_seconds: float = 30.0
+
+    @property
+    def fastgpt_chat_url(self) -> str:
+        base = self.fastgpt_api_base.rstrip("/")
+        path = (
+            self.fastgpt_chat_path
+            if self.fastgpt_chat_path.startswith("/")
+            else f"/{self.fastgpt_chat_path}"
+        )
+        return f"{base}{path}"
+
 
 settings = Settings()

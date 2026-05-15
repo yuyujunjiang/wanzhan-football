@@ -1,0 +1,235 @@
+.page {
+  min-height: 100dvh;
+  max-width: 720px;
+  margin: 0 auto;
+  background: #f3f4f6;
+  border-right: 1px solid #e5e7eb;
+  border-left: 1px solid #e5e7eb;
+}
+
+.embedded {
+  min-height: calc(100dvh - 180px);
+  max-width: none;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+.embeddedStatus {
+  margin-bottom: 10px;
+  color: #666;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 58px;
+  padding: 0 18px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.header h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100dvh - 58px);
+  padding: 16px 14px 104px;
+}
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(17 24 39 / 6%);
+}
+
+.welcomeTitle {
+  margin: 0;
+  color: #374151;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompt,
+.primaryPrompt {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  color: #111827;
+  text-align: left;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(17 24 39 / 5%);
+  cursor: pointer;
+}
+
+.primaryPrompt {
+  font-weight: 800;
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.prompt:disabled,
+.primaryPrompt:disabled,
+.composer button:disabled,
+.composer input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bubble {
+  max-width: min(82%, 560px);
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.65;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.assistantBubble {
+  align-self: flex-start;
+  color: #111827;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 6px 18px rgb(17 24 39 / 6%);
+}
+
+.userBubble {
+  align-self: flex-end;
+  color: #ffffff;
+  background: #111827;
+  border: 1px solid #111827;
+}
+
+.retryButton {
+  display: block;
+  width: fit-content;
+  min-height: 32px;
+  margin-top: 10px;
+  padding: 0 12px;
+  color: #111827;
+  font-weight: 800;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.stoppedMarker {
+  display: block;
+  width: fit-content;
+  margin-top: 10px;
+  padding: 4px 10px;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+}
+
+.composer {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  width: min(100%, 720px);
+  margin: 0 auto;
+  padding: 12px 14px max(16px, calc(env(safe-area-inset-bottom) + 10px));
+  background: rgb(255 255 255 / 92%);
+  border-top: 1px solid #e5e7eb;
+  backdrop-filter: blur(12px);
+}
+
+.composer input {
+  min-width: 0;
+  flex: 1;
+  min-height: 46px;
+  padding: 0 14px;
+  color: #111827;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  outline: none;
+}
+
+.composer input:focus {
+  border-color: #6b7280;
+  box-shadow: 0 0 0 3px rgb(107 114 128 / 14%);
+}
+
+.composer button {
+  min-width: 68px;
+  min-height: 46px;
+  padding: 0 16px;
+  font-weight: 800;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sendButton {
+  color: #ffffff;
+  background: #111827;
+}
+
+.stopButton {
+  color: #111827;
+  background: #e5e7eb;
+}
+
+@media (min-width: 640px) {
+  .messages {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .composer {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+}
