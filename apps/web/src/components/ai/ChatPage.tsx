@@ -7,6 +7,7 @@ import {
   streamAiChat
 } from "../../lib/aiChatStream";
 
+import { ChatMarkdown } from "./ChatMarkdown";
 import styles from "./ChatPage.module.css";
 
 type MessageStatus = "streaming" | "done" | "error" | "stopped";
@@ -37,6 +38,22 @@ function toChatPayload(messages: Message[]): ChatMessagePayload[] {
 
 function isConfigError(message: string): boolean {
   return message.includes("未配置");
+}
+
+function shouldRenderMarkdown(message: Message): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.status === "error") return false;
+  if (message.content === THINKING_TEXT || message.content === STOPPED_TEXT) {
+    return false;
+  }
+  return true;
+}
+
+function renderMessageBody(message: Message) {
+  if (shouldRenderMarkdown(message)) {
+    return <ChatMarkdown content={message.content} />;
+  }
+  return message.content;
 }
 
 export function ChatPage({ embedded = false }: { embedded?: boolean }) {
@@ -235,7 +252,7 @@ export function ChatPage({ embedded = false }: { embedded?: boolean }) {
               }`}
               key={`${message.role}-${index}`}
             >
-              {message.content}
+              {renderMessageBody(message)}
               {message.status === "error" ? (
                 <button
                   className={styles.retryButton}

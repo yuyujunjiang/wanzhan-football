@@ -23,12 +23,29 @@ describe("ChatPage", () => {
 
   it("sends a prompt and appends streamed answer", async () => {
     const user = userEvent.setup();
-    render(<ChatPage />);
+    render(<ChatPage embedded />);
 
     await user.click(screen.getByRole("button", { name: "今日推荐" }));
 
     expect(await screen.findByText("今日推荐")).toBeInTheDocument();
     expect(await screen.findByText("流式回答")).toBeInTheDocument();
+  });
+
+  it("renders assistant markdown replies in embedded mode", async () => {
+    const { streamAiChat } = await import("../../lib/aiChatStream");
+    vi.mocked(streamAiChat).mockImplementationOnce(async ({ onChunk, onDone }) => {
+      onChunk("## 今日推荐\n\n- 第一场");
+      onDone();
+    });
+
+    const user = userEvent.setup();
+    render(<ChatPage embedded />);
+    await user.click(screen.getByRole("button", { name: "今日推荐" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "今日推荐" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("第一场")).toBeInTheDocument();
   });
 
   it("does not send blank input", async () => {

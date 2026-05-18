@@ -12,8 +12,16 @@ export type ParsedSseEvent = {
 
 import { API_BASE_URL } from "./api";
 
-const API_BASE = API_BASE_URL || "http://127.0.0.1:8000";
 const STREAM_ERROR_MESSAGE = "回答中断，可重试";
+
+/** Same-origin `/api/ai/chat` via Next rewrites (or Nginx in prod); avoids CORS "Failed to fetch". */
+function resolveChatUrl(): string {
+  const base = API_BASE_URL.replace(/\/$/, "");
+  if (base) {
+    return `${base}/api/ai/chat`;
+  }
+  return "/api/ai/chat";
+}
 
 function isAbortError(error: unknown): boolean {
   return (
@@ -45,7 +53,7 @@ export async function streamAiChat(params: {
   onError: (message: string) => void;
 }): Promise<void> {
   try {
-    const response = await fetch(`${API_BASE}/api/ai/chat`, {
+    const response = await fetch(resolveChatUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: params.messages }),
