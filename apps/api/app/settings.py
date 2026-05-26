@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     matches_scheduler_interval_seconds: int = 300
     matches_scheduler_full_refresh_seconds: int = 1800
 
+    matches_worker_loop_seconds: int = 60
+    matches_worker_odds_ttl_seconds: int = 1800
+    matches_worker_results_ttl_seconds: int = 300
+    matches_worker_full_refresh_seconds: int = 1800
+    settlement_worker_interval_seconds: int = 120
+
     # Comma-separated browser origins for CORS (required when frontend calls API on another port/host).
     # Example: https://yujj.club,http://localhost:3000
     cors_origins: str = (

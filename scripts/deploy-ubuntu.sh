@@ -22,10 +22,17 @@ ENABLE_API="${ENABLE_API:-1}"
 API_PORT="${API_PORT:-8000}"
 API_SERVICE_NAME="${API_SERVICE_NAME:-football-calculator-api}"
 API_VENV_DIR="${API_VENV_DIR:-$APP_ROOT/venv-api}"
+MATCHES_WORKER_SERVICE_NAME="${MATCHES_WORKER_SERVICE_NAME:-football-calculator-matches-worker}"
+SETTLEMENT_WORKER_SERVICE_NAME="${SETTLEMENT_WORKER_SERVICE_NAME:-football-calculator-settlement-worker}"
 
 # If set to 1, deploy using the repo that contains this script.
 # This avoids cloning into /srv when you already have a checkout (e.g. /home/ubuntu/wanzhan-football).
 USE_LOCAL_REPO="${USE_LOCAL_REPO:-0}"
+
+# If set to 1, do not git fetch/pull (or clone). Use with REPO_DIR pointing at your checkout.
+# Unlike USE_LOCAL_REPO, this does not change REPO_DIR — useful for /srv/wanzhan-football/repo
+# when code was rsync'd or is ahead of origin.
+SKIP_GIT_PULL="${SKIP_GIT_PULL:-0}"
 
 # Set ENABLE_HTTPS=1 to attempt certbot issuance.
 ENABLE_HTTPS="${ENABLE_HTTPS:-0}"
@@ -123,9 +130,38 @@ resolve_repo_dir() {
   fi
 }
 
+warn_if_deploying_wrong_repo() {
+  if [[ "$USE_LOCAL_REPO" == "1" || "$SKIP_GIT_PULL" == "1" ]]; then
+    return
+  fi
+
+  local script_dir repo_from_script
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  repo_from_script="$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -z "$repo_from_script" ]]; then
+    return
+  fi
+
+  local canon_repo canon_target
+  canon_repo="$(readlink -f "$repo_from_script")"
+  canon_target="$(readlink -f "$REPO_DIR" 2>/dev/null || echo "$REPO_DIR")"
+  if [[ "$canon_repo" != "$canon_target" ]]; then
+    log "WARNING: deploy script lives in $canon_repo"
+    log "WARNING: but code will be synced from git into $canon_target (not this directory)."
+    log "WARNING: To deploy the checkout you are in, run:"
+    log "WARNING:   sudo USE_LOCAL_REPO=1 SERVICE_USER=ubuntu SERVICE_GROUP=ubuntu bash scripts/deploy-ubuntu.sh"
+  fi
+}
+
 clone_or_update_repo() {
-  if [[ "$USE_LOCAL_REPO" == "1" ]]; then
-    log "Skipping clone/pull (USE_LOCAL_REPO=1)"
+  if [[ "$USE_LOCAL_REPO" == "1" || "$SKIP_GIT_PULL" == "1" ]]; then
+    log "Skipping clone/pull (USE_LOCAL_REPO=$USE_LOCAL_REPO SKIP_GIT_PULL=$SKIP_GIT_PULL)"
+    if [[ -d "$REPO_DIR/.git" ]]; then
+      local last_good_file="$APP_ROOT/.last_good_commit"
+      if [[ ! -f "$last_good_file" ]]; then
+        sudo -u "$GIT_USER" git -C "$REPO_DIR" rev-parse HEAD > "$last_good_file" 2>/dev/null || true
+      fi
+    fi
     return
   fi
 
@@ -256,6 +292,72 @@ EOF
   systemctl restart "$API_SERVICE_NAME"
 }
 
+write_matches_worker_systemd_service() {
+  if [[ "$ENABLE_API" != "1" ]]; then
+    return
+  fi
+
+  log "Configuring systemd service: $MATCHES_WORKER_SERVICE_NAME"
+  local unit="/etc/systemd/system/$MATCHES_WORKER_SERVICE_NAME.service"
+
+  cat > "$unit" <<EOF
+[Unit]
+Description=Football Calculator Matches Cache Worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$REPO_DIR/apps/api
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-$REPO_DIR/apps/api/.env
+ExecStart=$API_VENV_DIR/bin/python -m app.workers.matches_refresh
+Restart=always
+RestartSec=5
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now "$MATCHES_WORKER_SERVICE_NAME"
+  systemctl restart "$MATCHES_WORKER_SERVICE_NAME"
+}
+
+write_settlement_worker_systemd_service() {
+  if [[ "$ENABLE_API" != "1" ]]; then
+    return
+  fi
+
+  log "Configuring systemd service: $SETTLEMENT_WORKER_SERVICE_NAME"
+  local unit="/etc/systemd/system/$SETTLEMENT_WORKER_SERVICE_NAME.service"
+
+  cat > "$unit" <<EOF
+[Unit]
+Description=Football Calculator Ledger Settlement Worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$REPO_DIR/apps/api
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-$REPO_DIR/apps/api/.env
+ExecStart=$API_VENV_DIR/bin/python -m app.workers.ledger_settlement
+Restart=always
+RestartSec=5
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now "$SETTLEMENT_WORKER_SERVICE_NAME"
+  systemctl restart "$SETTLEMENT_WORKER_SERVICE_NAME"
+}
+
 write_systemd_service() {
   # Ensure we use the resolved WEB_DIR_REL.
   if [[ -f "$APP_ROOT/.web_dir_rel" ]]; then
@@ -275,6 +377,7 @@ Type=simple
 WorkingDirectory=$REPO_DIR/$WEB_DIR_REL
 Environment=NODE_ENV=production
 Environment=PORT=$PORT
+Environment=INTERNAL_API_ORIGIN=http://127.0.0.1:$API_PORT
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=3
@@ -300,7 +403,7 @@ server {
   server_name __DOMAIN__ www.__DOMAIN__;
 
   location /api/ {
-    proxy_pass http://127.0.0.1:__API_PORT__/;
+    proxy_pass http://127.0.0.1:__API_PORT__;
     proxy_http_version 1.1;
 
     proxy_set_header Host $host;
@@ -361,11 +464,14 @@ main() {
   ensure_node
   resolve_repo_dir
   ensure_user_and_dirs
+  warn_if_deploying_wrong_repo
   clone_or_update_repo
   build_web
   build_api
   write_systemd_service
   write_api_systemd_service
+  write_matches_worker_systemd_service
+  write_settlement_worker_systemd_service
   write_nginx_site
   maybe_enable_https
   mark_last_good

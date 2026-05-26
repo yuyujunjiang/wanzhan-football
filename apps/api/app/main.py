@@ -1,11 +1,7 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.settings import settings
-from app.domain.results.scheduler import start_matches_scheduler, stop_matches_scheduler
 from app.routes.ai import router as ai_router
 from app.routes.auth import router as auth_router
 from app.routes.ledger import router as ledger_router
@@ -13,16 +9,7 @@ from app.routes.matches import router as matches_router
 from app.routes.tickets import router as tickets_router
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    scheduler_task = start_matches_scheduler()
-    try:
-        yield
-    finally:
-        await stop_matches_scheduler(scheduler_task)
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 _default_cors = {
     "http://localhost:3000",

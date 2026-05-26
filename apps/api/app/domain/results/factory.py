@@ -24,9 +24,9 @@ def get_results_provider() -> ResultsProvider:
         _singleton = MockResultsProvider()
         return _singleton
     if provider == "sporttery":
-        from .cached_sporttery import CachedSportteryResultsProvider
+        from .cache_only import CacheOnlyMatchesProvider
 
-        _singleton = CachedSportteryResultsProvider()
+        _singleton = CacheOnlyMatchesProvider()
         return _singleton
     if provider == "football_data_org":
         if not settings.football_data_org_token:

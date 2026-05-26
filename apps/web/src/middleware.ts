@@ -4,6 +4,23 @@ import { NextResponse } from "next/server";
 const SESSION_COOKIE = "fc_session";
 const LOGIN = "/wanzhan/login";
 
+/** FastAPI origin for server-side session checks (bypasses Next /api rewrites). */
+function internalApiOrigin(): string {
+  const explicit = process.env.INTERNAL_API_ORIGIN?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  const proxy = process.env.NEXT_API_PROXY_TARGET?.trim();
+  if (proxy) {
+    try {
+      return new URL(proxy).origin;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  return "http://127.0.0.1:8000";
+}
+
 function redirectToLogin(request: NextRequest, clearSession: boolean) {
   const url = request.nextUrl.clone();
   url.pathname = LOGIN;
@@ -19,7 +36,7 @@ async function sessionIsValid(request: NextRequest): Promise<boolean> {
   const cookie = request.cookies.get(SESSION_COOKIE)?.value;
   if (!cookie) return false;
 
-  const meUrl = new URL("/api/auth/me", request.url);
+  const meUrl = `${internalApiOrigin()}/api/auth/me`;
   try {
     const res = await fetch(meUrl, {
       headers: { cookie: `${SESSION_COOKIE}=${cookie}` },

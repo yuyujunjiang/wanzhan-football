@@ -164,6 +164,9 @@ class SportteryResultsProvider(ResultsProvider):
             # No hard failure: keep list_matches usable even if results endpoint is flaky/blocked.
             results_by_match_id = {}
 
+        seen_match_ids: set[int] = set()
+        seen_match_keys: set[str] = set()
+
         for day in (data.get("value", {}).get("matchInfoList") or []):
             if day.get("businessDate") != date:
                 continue
@@ -173,6 +176,9 @@ class SportteryResultsProvider(ResultsProvider):
                 away = m.get("awayTeamAbbName") or m.get("awayTeamAllName") or ""
                 match_key = f"{date} {league} {home} vs {away}".strip()
                 mid = m.get("matchId")
+                if isinstance(mid, int):
+                    seen_match_ids.add(mid)
+                seen_match_keys.add(match_key)
                 result_payload = results_by_match_id.get(mid) if isinstance(mid, int) else None
                 out.append(
                     {
@@ -189,8 +195,21 @@ class SportteryResultsProvider(ResultsProvider):
                         **(result_payload or {}),
                     }
                 )
-        if not out and result_matches:
-            return result_matches
+
+        # Include finished-only rows (e.g. already off the calculator list but still on 赛果).
+        for rm in result_matches:
+            mid = rm.get("matchId")
+            match_key = str(rm.get("matchKey") or "")
+            if isinstance(mid, int) and mid in seen_match_ids:
+                continue
+            if match_key and match_key in seen_match_keys:
+                continue
+            if isinstance(mid, int):
+                seen_match_ids.add(mid)
+            if match_key:
+                seen_match_keys.add(match_key)
+            out.append(rm)
+
         return out
 
     def get_results_by_match_keys(self, match_keys: list[str]) -> dict[str, dict[str, Any]]:

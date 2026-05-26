@@ -17,9 +17,9 @@ const nextConfig = {
   allowedDevOrigins: ["http://localhost:3000", "http://127.0.0.1:3000"],
 
   async rewrites() {
-    // Local dev: proxy to the full FastAPI app (auth, ledger, AI) on :8002.
+    // Local dev: proxy to the full FastAPI app (auth, ledger, AI) on :8000.
     // Override with NEXT_API_PROXY_TARGET if your API runs elsewhere.
-    const target = process.env.NEXT_API_PROXY_TARGET ?? "http://127.0.0.1:8002";
+    const target = process.env.NEXT_API_PROXY_TARGET ?? "http://127.0.0.1:8000";
     return [
       {
         source: "/api/:path*",

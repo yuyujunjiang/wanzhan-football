@@ -5,7 +5,14 @@ import { WanzhanShell } from "../../../components/wanzhan/WanzhanShell";
 import { StatStrip } from "../../../components/wanzhan/StatStrip";
 import { API_BASE_URL, createLedgerTicket, getLedgerSummary, type LedgerSummary } from "../../../lib/api";
 import { computeEstimatedPayout, computeStake } from "../../../lib/ledgerMath";
-import { deriveMatchPhase, formatKickoffClock, phaseLabel, type MatchPhase } from "../../../lib/matchDisplay";
+import {
+  formatKickoffClock,
+  isResultsPhase,
+  isSchedulePhase,
+  phaseLabel,
+  resolvePhase,
+  type MatchPhase,
+} from "../../../lib/matchDisplay";
 
 type MatchItem = {
   date: string;
@@ -23,6 +30,7 @@ type MatchItem = {
   hhad?: { goalLine?: string; h?: string; d?: string; a?: string } | null;
   outcomeSPF?: string;
   outcomeRQSPF?: string;
+  phase?: MatchPhase;
 };
 
 type MatchDayGroup = {
@@ -70,6 +78,15 @@ type SelectedLeg = {
 function parseOdd(value: unknown) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) && n > 1 ? n : null;
+}
+
+/** 补记模式无赔率时用占位 SP，仅用于估算奖金展示；结算以官方赛果为准。 */
+const RESULTS_MAKEUP_PLACEHOLDER_SP = 2;
+
+function spForTicket(view: ViewMode, spValue: unknown): number | null {
+  const parsed = parseOdd(spValue);
+  if (view === "results") return parsed ?? RESULTS_MAKEUP_PLACEHOLDER_SP;
+  return parsed;
 }
 
 function parseHandicap(value: unknown) {
@@ -129,14 +146,19 @@ function OddsOptionButton({
   value,
   active,
   onClick,
+  bettingLocked = false,
+  resultsMakeup = false,
 }: {
   title: string;
   value?: string;
   active: boolean;
   onClick: () => void;
+  bettingLocked?: boolean;
+  resultsMakeup?: boolean;
 }) {
-  const sp = parseOdd(value);
-  const disabled = sp == null;
+  const hasOdd = parseOdd(value) != null;
+  const disabled = bettingLocked || (!resultsMakeup && !hasOdd);
+  const displayValue = resultsMakeup && !hasOdd ? "—" : (value ?? "-");
   return (
     <button
       type="button"
@@ -145,7 +167,7 @@ function OddsOptionButton({
       style={oddsButtonStyle(active, disabled)}
     >
       <div style={{ fontSize: 11, color: active ? "#ddd" : disabled ? "#aaa" : "#666" }}>{title}</div>
-      <div style={{ fontWeight: 750, marginTop: 4 }}>{value ?? "-"}</div>
+      <div style={{ fontWeight: 750, marginTop: 4 }}>{displayValue}</div>
     </button>
   );
 }
@@ -153,6 +175,8 @@ function OddsOptionButton({
 function oddsGrid({
   label,
   options,
+  bettingLocked = false,
+  resultsMakeup = false,
 }: {
   label: string;
   options: {
@@ -161,6 +185,8 @@ function oddsGrid({
     active: boolean;
     onClick: () => void;
   }[];
+  bettingLocked?: boolean;
+  resultsMakeup?: boolean;
 }) {
   return (
     <div
@@ -176,7 +202,12 @@ function oddsGrid({
       </div>
       <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         {options.map((option) => (
-          <OddsOptionButton key={option.title} {...option} />
+          <OddsOptionButton
+            key={option.title}
+            {...option}
+            bettingLocked={bettingLocked}
+            resultsMakeup={resultsMakeup}
+          />
         ))}
       </div>
     </div>
@@ -222,7 +253,9 @@ export default function WanzhanMatchesPage() {
       }
       const body = (await res.json()) as unknown;
       if (!Array.isArray(body)) throw new Error("matches response is not a list");
-      const matches = body as MatchItem[];
+      const matches = (body as MatchItem[]).filter((m) =>
+        isSchedulePhase(resolvePhase(m, new Date(), today)),
+      );
       setDays([{ date: today, matchCount: matches.length, matches }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -240,8 +273,8 @@ export default function WanzhanMatchesPage() {
     }
     const body = (await res.json()) as unknown;
     if (!Array.isArray(body)) throw new Error("matches response is not a list");
-    return (body as MatchItem[]).filter(
-      (m) => m.finalScore != null && String(m.finalScore).trim() !== "",
+    return (body as MatchItem[]).filter((m) =>
+      isResultsPhase(resolvePhase(m, new Date(), date)),
     );
   }
 
@@ -264,7 +297,7 @@ export default function WanzhanMatchesPage() {
         .filter((g) => g.date <= today)
         .map((g) => ({
           ...g,
-          matches: g.matches.filter((m) => m.finalScore != null && String(m.finalScore).trim() !== ""),
+          matches: g.matches.filter((m) => isResultsPhase(resolvePhase(m, new Date(), g.date))),
         }))
         .filter((g) => g.matches.length > 0)
         .sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -327,6 +360,27 @@ export default function WanzhanMatchesPage() {
 
   const now = useMemo(() => new Date(), [tick]);
 
+  useEffect(() => {
+    if (view !== "schedule") return;
+    setSelected((current) => {
+      const allMatches = days.flatMap((d) =>
+        d.matches.map((m) => ({ m, day: d.date })),
+      );
+      let changed = false;
+      const next = { ...current };
+      for (const [key, leg] of Object.entries(current)) {
+        const row = allMatches.find((x) => x.m.matchKey === leg.matchKey);
+        if (!row) continue;
+        const phase = resolvePhase(row.m, now, row.day);
+        if (phase !== "not_started") {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [days, now, view]);
+
   function toggleLeg(
     match: MatchItem,
     matchDate: string,
@@ -335,8 +389,11 @@ export default function WanzhanMatchesPage() {
     spValue: unknown,
     handicap?: number | null,
   ) {
-    const sp = parseOdd(spValue);
+    const sp = spForTicket(view, spValue);
     if (sp == null) return;
+    if (view === "schedule" && resolvePhase(match, now, matchDate) !== "not_started") {
+      return;
+    }
     const key = selectedKey(match.matchKey);
     setSelected((current) => {
       const existing = current[key];
@@ -511,8 +568,8 @@ export default function WanzhanMatchesPage() {
             </div>
 
             {day.matches.map((m) => {
-              const phase: MatchPhase =
-                view === "results" ? "finished" : deriveMatchPhase(m, now, day.date);
+              const phase = resolvePhase(m, now, day.date);
+              const bettingLocked = view === "schedule" && phase !== "not_started";
               const statusText = phaseLabel(phase);
               const scoreText =
                 m.finalScore != null && String(m.finalScore).trim() !== ""
@@ -520,7 +577,8 @@ export default function WanzhanMatchesPage() {
                   : null;
               const kickoffClock = formatKickoffClock(m);
               const activeLeg = selected[selectedKey(m.matchKey)];
-              const hhadHandicap = parseHandicap(m.hhad?.goalLine);
+              const hhadHandicap = parseHandicap(m.hhad?.goalLine ?? m.goalLine);
+              const resultsMakeup = view === "results";
 
               return (
               <div key={`${day.date}-${m.matchKey}`} style={cardStyle()}>
@@ -605,6 +663,8 @@ export default function WanzhanMatchesPage() {
 
                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                   {oddsGrid({
+                    bettingLocked,
+                    resultsMakeup,
                     label: "胜平负",
                     options: [
                       {
@@ -628,6 +688,8 @@ export default function WanzhanMatchesPage() {
                     ],
                   })}
                   {oddsGrid({
+                    bettingLocked,
+                    resultsMakeup,
                     label: "让球胜平负",
                     options: [
                       {

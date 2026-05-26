@@ -6,6 +6,11 @@ import {
   ChatMessagePayload,
   streamAiChat
 } from "../../lib/aiChatStream";
+import {
+  buildTodayRecommendApiContent,
+  fetchMatchDayCache,
+  TODAY_RECOMMEND_LABEL
+} from "../../lib/matchDayCache";
 
 import { ChatMarkdown } from "./ChatMarkdown";
 import styles from "./ChatPage.module.css";
@@ -15,11 +20,12 @@ type MessageStatus = "streaming" | "done" | "error" | "stopped";
 type Message = {
   role: "user" | "assistant";
   content: string;
+  apiContent?: string;
   status: MessageStatus;
 };
 
 const PROMPTS = [
-  "今日推荐",
+  TODAY_RECOMMEND_LABEL,
   "帮我复盘这张票哪里判断错了",
   "解释一下让球胜平负怎么理解"
 ];
@@ -32,7 +38,7 @@ function toChatPayload(messages: Message[]): ChatMessagePayload[] {
     .filter((message) => message.role === "user" || message.status === "done")
     .map((message) => ({
       role: message.role,
-      content: message.content
+      content: message.apiContent ?? message.content
     }));
 }
 
@@ -83,7 +89,11 @@ export function ChatPage({ embedded = false }: { embedded?: boolean }) {
     updateAssistantAt(activeIndex, updater);
   };
 
-  const sendText = async (text: string, baseMessages = messages) => {
+  const sendText = async (
+    text: string,
+    baseMessages = messages,
+    options?: { apiContent?: string }
+  ) => {
     const trimmedText = text.trim();
     if (!trimmedText || streamingRef.current) return;
 
@@ -92,6 +102,7 @@ export function ChatPage({ embedded = false }: { embedded?: boolean }) {
     const userMessage: Message = {
       role: "user",
       content: trimmedText,
+      apiContent: options?.apiContent,
       status: "done"
     };
     const assistantMessage: Message = {
@@ -194,14 +205,36 @@ export function ChatPage({ embedded = false }: { embedded?: boolean }) {
     setIsStreaming(false);
   };
 
-  const retryMessageAt = (assistantIndex: number) => {
+  const sendTodayRecommend = async (baseMessages = messages) => {
+    if (streamingRef.current) return;
+
+    try {
+      const cache = await fetchMatchDayCache();
+      void sendText(TODAY_RECOMMEND_LABEL, baseMessages, {
+        apiContent: buildTodayRecommendApiContent(cache)
+      });
+    } catch {
+      void sendText(TODAY_RECOMMEND_LABEL, baseMessages, {
+        apiContent: TODAY_RECOMMEND_LABEL
+      });
+    }
+  };
+
+  const retryMessageAt = async (assistantIndex: number) => {
     const userIndex = messages
       .slice(0, assistantIndex)
       .findLastIndex((message) => message.role === "user");
     if (userIndex === -1) return;
 
     const userMessage = messages[userIndex];
-    void sendText(userMessage.content, messages.slice(0, userIndex));
+    if (userMessage.content === TODAY_RECOMMEND_LABEL) {
+      await sendTodayRecommend(messages.slice(0, userIndex));
+      return;
+    }
+
+    void sendText(userMessage.content, messages.slice(0, userIndex), {
+      apiContent: userMessage.apiContent
+    });
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -234,7 +267,11 @@ export function ChatPage({ embedded = false }: { embedded?: boolean }) {
                   }`}
                   disabled={isStreaming}
                   key={prompt}
-                  onClick={() => void sendText(prompt)}
+                  onClick={() =>
+                    void (prompt === TODAY_RECOMMEND_LABEL
+                      ? sendTodayRecommend()
+                      : sendText(prompt))
+                  }
                   type="button"
                 >
                   {prompt}
